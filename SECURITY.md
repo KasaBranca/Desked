@@ -18,6 +18,9 @@ feature is unavailable.
 - Login attempt limit and lockout (`MAX_LOGIN_ATTEMPTS`, `LOCKOUT_MINUTES`).
 - Session expiry (`SESSION_TIMEOUT_HOURS`).
 - WebSocket same-origin check (cross-site WebSocket hijacking).
+- Inbound WebSocket payloads are capped at 64 KB (`maxPayload`); clients only send
+  small control/input messages, so a flooding peer cannot exhaust memory.
+- `ws` is pinned to `>= 8.21.3` (fixes the fragmentation / memory-exhaustion DoS).
 - `cloudflared` is downloaded from a **pinned release** and its SHA-256 verified.
 - TLS is provided by Cloudflare Tunnel (named or Quick Tunnel).
 

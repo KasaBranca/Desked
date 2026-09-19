@@ -45,6 +45,9 @@ function isAllowedOrigin(req) {
 const wss = new WebSocketServer({ 
   server,
   perMessageDeflate: false, // Disables compression for lower latency (JPEG is already compressed)
+  // Clients only send small JSON control messages (auth/input/quality);
+  // video flows server -> client. Cap inbound payloads to bound memory use.
+  maxPayload: 64 * 1024,
   verifyClient: (info, cb) => {
     if (isAllowedOrigin(info.req)) cb(true);
     else cb(false, 403, 'Forbidden');
