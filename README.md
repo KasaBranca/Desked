@@ -52,15 +52,17 @@ npm start
 | 項目 | デフォルト | 説明 |
 |------|-----------|------|
 | `HOST` | 0.0.0.0 | バインドするアドレス |
-| `PORT` | 3389 | サーバーポート |
-| `PASSWORD` | (必須) | 認証パスワード。`npm run setup` / `npm run password` で変更 |
+| `PORT` | 3389 | サーバーポート（Windows RDP と衝突する場合は変更） |
+| `PASSWORD_HASH` | (必須) | scrypt ハッシュ。`npm run setup` / `npm run password` で設定（平文は保存されません） |
 | `TUNNEL_TOKEN` | (空) | 空なら Quick Tunnel（デフォルト）。設定すると名前付きトンネル |
 | `CAPTURE_QUALITY` | 60 | 画質 (1-100) |
 | `CAPTURE_SCALE` | 0.6667 | キャプチャ解像度スケール (0.1-1.0) |
-| `TARGET_FPS` | 60 | JPEG モードの目標フレームレート |
+| `TARGET_FPS` | 10 | JPEG モードの目標フレームレート |
 | `STREAM_MODE` | h264 | `h264` または `jpeg` |
-| `H264_ENCODER` | libx264 | `h264_nvenc` / `h264_qsv` / `h264_amf` / `libx264` |
+| `H264_ENCODER` | (空 = 自動) | 空で NVENC > QSV > AMF > libx264 を自動選択。明示する場合は `h264_nvenc` などを指定 |
 | `H264_TARGET_FPS` / `H264_CAPTURE_FPS` | 24 | 出力 / キャプチャ FPS |
+| `H264_GOP` | 24 | キーフレーム間隔 |
+| `H264_CQ` | 28 | 画質（小さいほど高品質） |
 | `SESSION_TIMEOUT_HOURS` | 24 | セッション有効期限 (時間) |
 | `MAX_LOGIN_ATTEMPTS` | 5 | ログイン試行上限 |
 | `LOCKOUT_MINUTES` | 15 | ロックアウト時間 (分) |
@@ -94,10 +96,22 @@ npm run install-service
 ## セキュリティ
 
 - **HTTPS を必須とする**: Cloudflare Tunnel または nginx + Let's Encrypt などのリバースプロキシを経由させてください。パスワードと映像は平文の HTTP では保護されません。
+- パスワードは **scrypt ハッシュ**（`PASSWORD_HASH`）で保存され、平文はディスクに残りません。
 - **強力なパスワード**を設定し、`.env` は絶対にコミットしないでください（`.gitignore` 済み）。
 - WebSocket は同一オリジンのみ受け付けます（クロスサイト WebSocket ハイジャック対策）。
-- ログイン試行回数の制限とロックアウトを内蔵しています。
+- ログイン試行回数の制限とロックアウト、セッション期限、サーバー側のログアウト（トークン失効）を実装しています。
+- `cloudflared.exe` は**固定バージョン**をダウンロードし、SHA-256 を検証します。
 - `cloudflared.exe`・ログ・スクリーンショットなどの実行時生成物はコミット対象外です。
+
+詳細な脅威モデルと既知の制約（管理者権限プロセスの分離案など）は [SECURITY.md](SECURITY.md) を参照してください。
+
+## 開発
+
+```bash
+npm test        # ユニットテスト (node:test、追加インストール不要)
+```
+
+`test/` にパスワードハッシュと `.env` ライタのテストがあります。GitHub Actions（Windows）で構文チェックとテストを実行します。
 
 ## トラブルシューティング
 

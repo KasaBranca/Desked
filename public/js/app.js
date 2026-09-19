@@ -348,6 +348,14 @@
 
   function disconnect() {
     clearTimeout(reconnectTimer);
+
+    // Revoke the session token server-side before dropping the connection.
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: 'logout' }));
+      } catch (_) {}
+    }
+
     sessionToken = null;
     localStorage.removeItem('rd_token');
 

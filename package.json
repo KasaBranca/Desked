@@ -11,6 +11,7 @@
     "start": "node cli.js start",
     "start:server": "node server.js",
     "password": "node cli.js password",
+    "test": "node --test",
     "dev": "node --watch server.js",
     "install-service": "node cli.js install",
     "uninstall-service": "node cli.js uninstall",

@@ -555,6 +555,20 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
+    // Explicit logout: revoke the session token server-side
+    if (msg.type === 'logout') {
+      if (sessionToken) auth.revokeToken(sessionToken);
+      authenticated = false;
+      sessionToken = null;
+      clients.delete(ws);
+      console.log(`[Server] Client logged out from ${ip}`);
+      try {
+        ws.send(JSON.stringify({ type: 'logged_out' }));
+        ws.close();
+      } catch (_) {}
+      return;
+    }
+
     // Handle input events
     inputHandler.handleInput(msg);
   });

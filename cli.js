@@ -16,17 +16,22 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const readline = require('readline');
 const { Readable } = require('stream');
 const { spawn, spawnSync } = require('child_process');
 const envStore = require('./lib/env-store');
+const passwordUtil = require('./lib/password');
 
 const ROOT = envStore.ROOT;
 const CLOUDFLARED = path.join(ROOT, 'cloudflared.exe');
+// Pin the release and verify its SHA-256 (from the GitHub release notes) so we
+// never execute whatever "latest" currently points at. Windows on ARM runs the
+// amd64 build under emulation; Cloudflare does not ship a Windows arm64 build.
+const CLOUDFLARED_VERSION = '2026.9.1';
+const CLOUDFLARED_SHA256 = '2837888cc0f5d58f15b6dc478376de90b4d3ba5241c7947455d1e0a0df429712';
 const CLOUDFLARED_URL =
-  process.arch === 'arm64'
-    ? 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-arm64.exe'
-    : 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe';
+  `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-windows-amd64.exe`;
 
 // ---------------------------------------------------------------- input helpers
 
@@ -104,19 +109,29 @@ async function promptNewPassword() {
 // ---------------------------------------------------------------- cloudflared
 
 async function downloadCloudflared() {
-  console.log('[Desked] Downloading cloudflared...');
+  console.log(`[Desked] Downloading cloudflared ${CLOUDFLARED_VERSION}...`);
   const res = await fetch(CLOUDFLARED_URL, { redirect: 'follow' });
   if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
   const tmp = `${CLOUDFLARED}.download`;
   const out = fs.createWriteStream(tmp);
+  const hasher = crypto.createHash('sha256');
+  const source = Readable.fromWeb(res.body);
+  source.on('data', (chunk) => hasher.update(chunk));
   await new Promise((resolve, reject) => {
-    Readable.fromWeb(res.body).pipe(out);
+    source.pipe(out);
     out.on('finish', resolve);
     out.on('error', reject);
+    source.on('error', reject);
   });
+
+  const digest = hasher.digest('hex');
+  if (digest !== CLOUDFLARED_SHA256) {
+    fs.rmSync(tmp, { force: true });
+    throw new Error(`checksum mismatch (expected ${CLOUDFLARED_SHA256}, got ${digest})`);
+  }
   fs.renameSync(tmp, CLOUDFLARED);
-  console.log(`[Desked] Saved to ${CLOUDFLARED}`);
+  console.log(`[Desked] Verified SHA-256 and saved to ${CLOUDFLARED}`);
 }
 
 /** Ensure cloudflared.exe exists, offering to download it. Returns true when available. */
@@ -174,7 +189,7 @@ async function cmdSetup(argv) {
   } else if (opts.yes) {
     fail('--yes requires --password <value>.');
   } else {
-    const existing = envStore.get('PASSWORD');
+    const existing = envStore.get('PASSWORD_HASH') || envStore.get('PASSWORD');
     console.log(existing
       ? 'A password is already configured. Enter a new one.'
       : 'Set the password you will use to sign in.');
@@ -215,7 +230,8 @@ async function cmdSetup(argv) {
   envStore.setMany({
     HOST: envStore.get('HOST') || '0.0.0.0',
     PORT: port,
-    PASSWORD: password,
+    PASSWORD: '',
+    PASSWORD_HASH: passwordUtil.hash(password),
     TUNNEL_TOKEN: token,
   });
 
@@ -238,7 +254,7 @@ async function cmdSetup(argv) {
 }
 
 async function cmdStart(argv) {
-  if (!fs.existsSync(envStore.ENV_PATH) || !envStore.get('PASSWORD')) {
+  if (!fs.existsSync(envStore.ENV_PATH) || (!envStore.get('PASSWORD_HASH') && !envStore.get('PASSWORD'))) {
     console.error('No password configured. Run: npm run setup');
     process.exit(1);
   }
@@ -322,7 +338,7 @@ async function cmdPassword(argv) {
   const error = validatePassword(password);
   if (error) fail(error);
 
-  envStore.set('PASSWORD', password);
+  envStore.setMany({ PASSWORD: '', PASSWORD_HASH: passwordUtil.hash(password) });
   console.log(`Password updated in ${envStore.ENV_PATH}.`);
   console.log('Restart the server for the change to take effect.');
 }
