@@ -8,7 +8,7 @@
 - マウス・キーボード・マルチタッチ操作、仮想キーボード、Ctrl/Alt/Ctrl+Alt+Del 送信
 - パスワード認証、セッショントークン、ブルートフォース対策（試行回数制限・ロックアウト）
 - Cloudflare Tunnel による外部公開（デフォルトはアカウント不要の **Quick Tunnel**）
-- ブラウザからのパスワード変更、CLI によるセットアップ
+- CLI によるセットアップ（初回パスワード設定・Quick Tunnel）
 
 ## セットアップ（CLI）
 
@@ -117,8 +117,8 @@ npm run install-service
 - **キーボードボタン**: モバイルキーボード表示
 
 ### ツールバー
-- **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Password** / **Quality** / **Scale** / **Disconnect**
-- PC（ツールバー非表示）では左上の鍵アイコンからパスワードを変更できます
+- **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Quality** / **Scale** / **Disconnect**
+- パスワードの変更はサーバー側の CLI（`npm run password`）で行います
 
 ## 技術スタック
 

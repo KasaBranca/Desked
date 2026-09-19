@@ -5,7 +5,6 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const config = require('./lib/config');
 const auth = require('./lib/auth');
-const envStore = require('./lib/env-store');
 const screenCapture = require('./lib/screen-capture');
 const inputHandler = require('./lib/input-handler');
 const { HwH264Encoder, pickEncoder } = require('./lib/hw-h264-encoder');
@@ -24,27 +23,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
-
-// --- Password management ---
-function isValidNewPassword(password) {
-  return (
-    typeof password === 'string' &&
-    password.length >= 8 &&
-    password.length <= 200 &&
-    !/[\r\n]/.test(password)
-  );
-}
-
-/** Update PASSWORD= in .env so the change survives a restart. */
-function persistPassword(newPassword) {
-  try {
-    envStore.set('PASSWORD', newPassword);
-    return true;
-  } catch (err) {
-    console.error('[Server] Failed to persist password to .env:', err.message);
-    return false;
-  }
-}
 
 /**
  * Reject cross-site WebSocket hijacking: browser handshakes carry an Origin
@@ -574,51 +552,6 @@ wss.on('connection', (ws, req) => {
         }));
         screenCapture.forceFullFrame();
       }
-      return;
-    }
-
-    // Handle password change
-    if (msg.type === 'change_password') {
-      const current = typeof msg.currentPassword === 'string' ? msg.currentPassword : '';
-      const next = typeof msg.newPassword === 'string' ? msg.newPassword : '';
-
-      if (!auth.checkPassword(current)) {
-        ws.send(JSON.stringify({
-          type: 'password_result',
-          success: false,
-          error: 'Current password is incorrect',
-        }));
-        console.log(`[Server] Password change rejected (bad current password) from ${ip}`);
-        return;
-      }
-      if (!isValidNewPassword(next)) {
-        ws.send(JSON.stringify({
-          type: 'password_result',
-          success: false,
-          error: 'New password must be 8-200 characters',
-        }));
-        return;
-      }
-      if (next === current) {
-        ws.send(JSON.stringify({
-          type: 'password_result',
-          success: false,
-          error: 'New password must be different from the current one',
-        }));
-        return;
-      }
-
-      auth.setPassword(next);
-      config.password = next;
-      const persisted = persistPassword(next);
-      auth.revokeOtherSessions(sessionToken);
-      ws.send(JSON.stringify({
-        type: 'password_result',
-        success: true,
-        persisted,
-        error: persisted ? undefined : 'Changed for this session, but could not be saved to .env',
-      }));
-      console.log(`[Server] Password changed from ${ip}${persisted ? '' : ' (NOT persisted to .env)'}`);
       return;
     }
 

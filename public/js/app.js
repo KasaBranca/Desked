@@ -41,19 +41,6 @@
   const mobileInputContainer = document.getElementById('mobile-input-container');
   const mobileTextInput = document.getElementById('mobile-text-input');
 
-  // Change Password
-  const btnPassword = document.getElementById('btn-password');
-  const passwordFab = document.getElementById('password-fab');
-  const passwordModal = document.getElementById('password-modal');
-  const passwordForm = document.getElementById('password-form');
-  const passwordClose = document.getElementById('password-close');
-  const passwordCancel = document.getElementById('password-cancel');
-  const passwordSubmit = document.getElementById('password-submit');
-  const currentPasswordInput = document.getElementById('current-password-input');
-  const newPasswordInput = document.getElementById('new-password-input');
-  const confirmPasswordInput = document.getElementById('confirm-password-input');
-  const passwordMessage = document.getElementById('password-message');
-
   // --- Initialize Modules ---
   const canvasRenderer = new CanvasRenderer('remote-canvas');
   const videoRenderer = new VideoRenderer('remote-canvas');
@@ -303,7 +290,6 @@
 
           // Enable input
           inputCapture.setEnabled(true);
-          passwordFab.classList.remove('hidden');
           
           // Enable touch handler and mobile UI on any touch-capable device
           const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
@@ -326,8 +312,6 @@
           // Auth failed
           sessionToken = null;
           localStorage.removeItem('rd_token');
-          passwordFab.classList.add('hidden');
-          closePasswordModal();
 
           if (desktopScreen.classList.contains('active')) {
             // Was viewing desktop, token expired — go back to login
@@ -344,21 +328,6 @@
         if (msg.width && msg.height) {
           activeRenderer.setScreenSize(msg.width, msg.height);
           statsResolution.textContent = `${msg.width}×${msg.height}`;
-        }
-        break;
-
-      case 'password_result':
-        passwordSubmit.disabled = false;
-        if (msg.success) {
-          const saved = msg.persisted !== false;
-          showPasswordMessage(
-            saved ? 'Password changed successfully.' : (msg.error || 'Password changed, but could not be saved to .env'),
-            saved ? 'success' : 'error'
-          );
-          passwordForm.reset();
-          setTimeout(closePasswordModal, 1500);
-        } else {
-          showPasswordMessage(msg.error || 'Failed to change password', 'error');
         }
         break;
 
@@ -397,8 +366,6 @@
     inputCapture.setEnabled(false);
     touchHandler.setEnabled(false);
     stopStatsUpdate();
-    passwordFab.classList.add('hidden');
-    closePasswordModal();
 
     desktopScreen.classList.remove('active');
     loginScreen.classList.add('active');
@@ -559,67 +526,6 @@
 
   btnCad.addEventListener('click', () => {
     inputCapture.sendCtrlAltDel();
-  });
-
-  // --- Change Password ---
-  function openPasswordModal() {
-    passwordForm.reset();
-    showPasswordMessage('', '');
-    passwordSubmit.disabled = false;
-    passwordModal.classList.remove('hidden');
-    currentPasswordInput.focus();
-  }
-
-  function closePasswordModal() {
-    passwordModal.classList.add('hidden');
-  }
-
-  function showPasswordMessage(text, type) {
-    passwordMessage.textContent = text;
-    passwordMessage.className = 'modal-message' + (type ? ' ' + type : '');
-  }
-
-  btnPassword.addEventListener('click', openPasswordModal);
-  passwordFab.addEventListener('click', openPasswordModal);
-  passwordClose.addEventListener('click', closePasswordModal);
-  passwordCancel.addEventListener('click', closePasswordModal);
-  passwordModal.addEventListener('click', (e) => {
-    if (e.target === passwordModal) closePasswordModal();
-  });
-
-  passwordForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      showPasswordMessage('Not connected to server', 'error');
-      return;
-    }
-
-    const currentPassword = currentPasswordInput.value;
-    const newPassword = newPasswordInput.value;
-    const confirmPassword = confirmPasswordInput.value;
-
-    if (newPassword.length < 8) {
-      showPasswordMessage('New password must be at least 8 characters', 'error');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      showPasswordMessage('New passwords do not match', 'error');
-      return;
-    }
-    if (newPassword === currentPassword) {
-      showPasswordMessage('New password must be different from the current one', 'error');
-      return;
-    }
-
-    passwordSubmit.disabled = true;
-    showPasswordMessage('Updating…', '');
-    ws.send(JSON.stringify({
-      type: 'change_password',
-      currentPassword,
-      newPassword,
-    }));
-
-    setTimeout(() => { passwordSubmit.disabled = false; }, 5000);
   });
 
   btnDisconnect.addEventListener('click', () => {
