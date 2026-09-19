@@ -20,7 +20,7 @@
     "create-task": "powershell.exe -ExecutionPolicy Bypass -File scripts/create-task.ps1"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
     "koffi": "^2.9.0",
     "qrcode-terminal": "^0.12.0",
