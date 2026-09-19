@@ -156,6 +156,16 @@ async function ensureCloudflared(opts = {}) {
   }
 }
 
+/** Print a scannable QR code for the given URL (best effort). */
+function printQr(url) {
+  try {
+    const qrcode = require('qrcode-terminal');
+    qrcode.generate(url, { small: true });
+  } catch (_) {
+    console.log('[Desked] Install "qrcode-terminal" to display a QR code (npm install).');
+  }
+}
+
 // ---------------------------------------------------------------- .env helpers
 
 function ensureEnv() {
@@ -306,6 +316,9 @@ async function cmdStart(argv) {
         urlPrinted = true;
         console.log('');
         console.log(`  Public URL: ${match[0]}`);
+        console.log('  Scan to open on your phone:');
+        console.log('');
+        printQr(match[0]);
         console.log('');
       }
     };

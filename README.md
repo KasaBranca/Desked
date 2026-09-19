@@ -35,7 +35,7 @@ node cli.js setup --yes --password <password> --quick --port 3389
 npm start
 ```
 
-サーバーと Cloudflare Tunnel をまとめて起動し、Quick Tunnel の公開 URL を表示します。サーバーのみ起動する場合は `npm run start:server`。
+サーバーと Cloudflare Tunnel をまとめて起動し、Quick Tunnel の公開 URL とスマホで読み取れる **QR コード** を表示します。サーバーのみ起動する場合は `npm run start:server`。
 
 ### CLI コマンド
 
@@ -73,7 +73,7 @@ npm start
 
 `cloudflared.exe` はリポジトリに含まれません（サイズのため）。`npm run setup` または `npm start` は未配置を検出すると自動ダウンロードを提案します（`--no-download` で無効化）。手動の場合は[こちら](https://github.com/cloudflare/cloudflared/releases)からプロジェクト直下に配置してください。
 
-起動すると以下を実行し、`https://<ランダム>.trycloudflare.com` を発行します。Cloudflare アカウントやトークンは不要ですが、URL は起動ごとに変わります。
+起動すると以下を実行し、`https://<ランダム>.trycloudflare.com` を発行します。Cloudflare アカウントやトークンは不要ですが、URL は起動ごとに変わります。`npm start` は発行された URL と、スマホで読み取れる **QR コード** をターミナルに表示します。
 
 ```bash
 cloudflared tunnel --url http://localhost:3389
