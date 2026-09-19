@@ -80,6 +80,26 @@ function questionHidden(query) {
   });
 }
 
+/** Read all of stdin (used by --password-stdin so secrets stay out of argv). */
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => (data += chunk));
+    process.stdin.on('end', () => resolve(data));
+    process.stdin.resume();
+  });
+}
+
+async function resolvePasswordInput(opts) {
+  if (opts.password) return opts.password;
+  if (opts.passwordStdin) {
+    const first = (await readStdin()).split(/\r?\n/)[0];
+    return first;
+  }
+  return '';
+}
+
 function validatePassword(password) {
   if (typeof password !== 'string' || password.length < 8) {
     return 'Password must be at least 8 characters.';
@@ -181,10 +201,10 @@ function loadEnv() {
 // ---------------------------------------------------------------- commands
 
 async function cmdSetup(argv) {
+  const hadEnv = fs.existsSync(envStore.ENV_PATH);
   ensureEnv();
 
   const opts = parseFlags(argv);
-  const hadEnv = fs.existsSync(envStore.ENV_PATH);
 
   console.log('');
   console.log('Desked setup');
@@ -192,12 +212,12 @@ async function cmdSetup(argv) {
   console.log('');
 
   // 1. Password
-  let password = opts.password;
+  let password = await resolvePasswordInput(opts);
   if (password) {
     const error = validatePassword(password);
     if (error) fail(error);
   } else if (opts.yes) {
-    fail('--yes requires --password <value>.');
+    fail('--yes requires --password <value> or --password-stdin.');
   } else {
     const existing = envStore.get('PASSWORD_HASH') || envStore.get('PASSWORD');
     console.log(existing
@@ -344,7 +364,7 @@ async function cmdStart(argv) {
 async function cmdPassword(argv) {
   ensureEnv();
   const opts = parseFlags(argv);
-  let password = opts.password;
+  let password = await resolvePasswordInput(opts);
   if (!password && !opts.yes) {
     password = await promptNewPassword();
   }
@@ -376,11 +396,12 @@ function printHelp() {
   console.log('  help         Show this help');
   console.log('');
   console.log('Setup options (skip the prompts):');
-  console.log('  --password <value>   Set the login password');
+  console.log('  --password <value>   Set the login password (visible in shell history)');
+  console.log('  --password-stdin     Read the password from stdin (safer for scripts)');
   console.log('  --quick              Force Quick Tunnel (default)');
   console.log('  --token <value>      Use a named tunnel with this Cloudflare token');
   console.log('  --port <number>      Server port (default 3389)');
-  console.log('  --yes                Non-interactive (requires --password)');
+  console.log('  --yes                Non-interactive (requires --password or --password-stdin)');
   console.log('  --no-download        Do not auto-download cloudflared.exe');
   console.log('');
   console.log('Tip: use "npm run setup", "npm start", "npm run password".');
@@ -388,11 +409,12 @@ function printHelp() {
 }
 
 function parseFlags(argv) {
-  const opts = { password: '', token: '', port: '', quick: false, yes: false, noDownload: false };
+  const opts = { password: '', passwordStdin: false, token: '', port: '', quick: false, yes: false, noDownload: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => argv[++i];
     if (arg === '--password') opts.password = next() || '';
+    else if (arg === '--password-stdin') opts.passwordStdin = true;
     else if (arg === '--token') opts.token = next() || '';
     else if (arg === '--port') opts.port = next() || '';
     else if (arg === '--quick') opts.quick = true;

@@ -23,10 +23,13 @@ npm run setup
 2. **トンネル方式** — デフォルトは **Quick Tunnel**（Enter で決定）。安定 URL が必要な場合のみ名前付きトークンを入力
 3. **ポート**（デフォルト 3389）
 
-非対話で実行する場合:
+非対話で実行する場合（`--password` はシェル履歴に残る点に注意）:
 
 ```bash
 node cli.js setup --yes --password <password> --quick --port 3389
+
+# 履歴に残したくない場合は stdin から渡す
+echo <password> | node cli.js setup --yes --password-stdin --quick --port 3389
 ```
 
 ### 起動
@@ -42,8 +45,8 @@ npm start
 | コマンド | 説明 |
 |----------|------|
 | `npm run setup` | 対話形式のセットアップ（パスワード・トンネル・ポート） |
-| `npm start` | サーバー + トンネルを起動し公開 URL を表示 |
-| `npm run password` | `.env` のパスワードを変更 |
+| `npm start` | サーバー + トンネルを起動し公開 URL と QR コードを表示 |
+| `npm run password` | `.env` のパスワードを変更（`--password-stdin` 対応） |
 | `npm run install-service` | 管理者権限で自動起動タスクを登録 |
 | `npm run uninstall-service` | 自動起動タスクを削除 |
 
@@ -98,8 +101,10 @@ npm run install-service
 - **HTTPS を必須とする**: Cloudflare Tunnel または nginx + Let's Encrypt などのリバースプロキシを経由させてください。パスワードと映像は平文の HTTP では保護されません。
 - パスワードは **scrypt ハッシュ**（`PASSWORD_HASH`）で保存され、平文はディスクに残りません。
 - **強力なパスワード**を設定し、`.env` は絶対にコミットしないでください（`.gitignore` 済み）。
-- WebSocket は同一オリジンのみ受け付けます（クロスサイト WebSocket ハイジャック対策）。
-- ログイン試行回数の制限とロックアウト、セッション期限、サーバー側のログアウト（トークン失効）を実装しています。
+- WebSocket は同一オリジンのみ受け付けます（クロスサイト WebSocket ハイジャック対策）。受信ペイロードは 64KB に制限しています。
+- `ws` は脆弱性修正済みの `>= 8.21.3` を使用します（極小 fragment によるメモリ枯渇 DoS 対策）。
+- ログイン試行回数の制限とロックアウト、セッション期限、サーバー側のログアウト（トークン失効）を実装しています。ロックアウトのキーはループバック経由の場合のみ `CF-Connecting-IP` を信頼します。
+- 厳格な **Content-Security-Policy** と関連ヘッダー（`nosniff` / `frame-ancestors 'none'` 等）を付与します。
 - `cloudflared.exe` は**固定バージョン**をダウンロードし、SHA-256 を検証します。
 - `cloudflared.exe`・ログ・スクリーンショットなどの実行時生成物はコミット対象外です。
 
@@ -108,10 +113,11 @@ npm run install-service
 ## 開発
 
 ```bash
-npm test        # ユニットテスト (node:test、追加インストール不要)
+npm ci          # lockfile どおりに依存をインストール
+npm test        # ユニットテスト (node:test)
 ```
 
-`test/` にパスワードハッシュと `.env` ライタのテストがあります。GitHub Actions（Windows）で構文チェックとテストを実行します。
+`test/` にパスワードハッシュと `.env` ライタのテストがあります。GitHub Actions（Windows）で `npm ci` → 構文チェック → テストを実行し、Dependabot が依存更新を監視します。変更履歴は [CHANGELOG.md](CHANGELOG.md) を参照してください。
 
 ## トラブルシューティング
 

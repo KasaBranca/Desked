@@ -13,6 +13,30 @@ const { HwH264Encoder, pickEncoder } = require('./lib/hw-h264-encoder');
 const app = express();
 const server = http.createServer(app);
 
+// Security headers. All app scripts are external and there are no inline
+// styles/scripts, so a strict script-src/style-src is possible.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  "connect-src 'self' ws: wss:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  next();
+});
+
 app.use((req, res, next) => {
   if (req.url !== '/health') console.log(`[Server] ${req.method} ${req.url}`);
   next();
@@ -39,6 +63,35 @@ function isAllowedOrigin(req) {
   } catch {
     return false;
   }
+}
+
+function isLoopbackAddress(addr) {
+  if (!addr) return false;
+  return addr === '::1' || addr === '127.0.0.1' || addr.startsWith('::ffff:127.');
+}
+
+/**
+ * Resolve the client IP used as the lockout key.
+ *
+ * Forwarding headers (CF-Connecting-IP / X-Forwarded-For) are only trusted
+ * when the TCP peer is loopback, i.e. local cloudflared or a local reverse
+ * proxy. Direct connections use socket.remoteAddress, so a remote attacker
+ * cannot spoof the lockout key and bypass rate limiting.
+ */
+function getClientIp(req) {
+  const socketAddr = req.socket && req.socket.remoteAddress;
+  if (isLoopbackAddress(socketAddr)) {
+    const cf = req.headers['cf-connecting-ip'];
+    if (cf) return String(cf).trim();
+    const xff = req.headers['x-forwarded-for'];
+    if (xff) {
+      const parts = String(xff).split(',').map((s) => s.trim()).filter(Boolean);
+      if (parts.length) return parts[parts.length - 1];
+    }
+  }
+  let ip = socketAddr || 'unknown';
+  if (ip.startsWith('::ffff:')) ip = ip.substring(7);
+  return ip;
 }
 
 // --- WebSocket Setup ---
@@ -471,10 +524,7 @@ function stopCapture() {
 }
 
 wss.on('connection', (ws, req) => {
-  let ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-  if (ip && ip.startsWith('::ffff:')) {
-    ip = ip.substring(7);
-  }
+  const ip = getClientIp(req);
   console.log(`[Server] WebSocket connection from ${ip}`);
   ws._tConnected = Date.now();
   ws._tAuthOk = 0;

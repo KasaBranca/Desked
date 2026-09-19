@@ -16,12 +16,22 @@ feature is unavailable.
   accepted for backward compatibility but are hashed in memory and warned about.
 - 32-byte random session tokens, with a server-side logout that revokes the token.
 - Login attempt limit and lockout (`MAX_LOGIN_ATTEMPTS`, `LOCKOUT_MINUTES`).
+  The lockout key only trusts `CF-Connecting-IP` / `X-Forwarded-For` when the TCP
+  peer is loopback (local cloudflared / reverse proxy); direct connections use
+  `socket.remoteAddress`, so a remote attacker cannot spoof the key.
 - Session expiry (`SESSION_TIMEOUT_HOURS`).
 - WebSocket same-origin check (cross-site WebSocket hijacking).
 - Inbound WebSocket payloads are capped at 64 KB (`maxPayload`); clients only send
   small control/input messages, so a flooding peer cannot exhaust memory.
+- A strict `Content-Security-Policy` (`script-src 'self'`) plus `nosniff`,
+  `Referrer-Policy: no-referrer`, and `frame-ancestors 'none'`. This makes an XSS
+  bug materially harder to exploit while session tokens remain in `localStorage`.
 - `ws` is pinned to `>= 8.21.3` (fixes the fragmentation / memory-exhaustion DoS).
 - `cloudflared` is downloaded from a **pinned release** and its SHA-256 verified.
+- `sharp` is kept at `0.35.x`; the unused `werift` dependency was removed to
+  reduce the dependency surface.
+- CI runs `npm ci`, `node --check`, and the unit tests on Windows, and Dependabot
+  watches for dependency updates.
 - TLS is provided by Cloudflare Tunnel (named or Quick Tunnel).
 
 ## Known limitation: privileged network process
