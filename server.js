@@ -708,14 +708,19 @@ function handleServerError(err) {
 server.on('error', handleServerError);
 wss.on('error', handleServerError);
 
-server.listen(config.port, () => {
-  const localIp = getLocalIp();
+server.listen(config.port, config.host, () => {
+  const isLoopbackHost =
+    config.host === '127.0.0.1' || config.host === 'localhost' || config.host === '::1';
+  const localIp = isLoopbackHost ? null : getLocalIp();
   console.log('');
   console.log('  ╔══════════════════════════════════════════╗');
   console.log('  ║           Desked Server Running          ║');
   console.log('  ╠══════════════════════════════════════════╣');
+  console.log(`  ║  Bind:    ${String(`${config.host}:${config.port}`).padEnd(30)}║`);
   console.log(`  ║  Local:   http://localhost:${String(config.port).padEnd(21)}║`);
-  console.log(`  ║  Network: http://${localIp}:${String(config.port).padEnd(24 - localIp.length)}║`);
+  if (localIp) {
+    console.log(`  ║  Network: http://${localIp}:${String(config.port).padEnd(24 - localIp.length)}║`);
+  }
   console.log(
     `  ║  FPS:     ${String(
       useH264 ? `${config.h264CaptureFps} cap / ${config.h264TargetFps} out` : streamFps()

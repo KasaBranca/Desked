@@ -40,7 +40,13 @@ const REPO_SLUG = 'KasaBranca/Desked';
 // stale version for several minutes after a push.
 const REMOTE_API_URL = `https://api.github.com/repos/${REPO_SLUG}/contents/package.json?ref=main`;
 const REMOTE_PACKAGE_URL = `https://raw.githubusercontent.com/${REPO_SLUG}/main/package.json`;
+const RELEASE_API_URL = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
 const ARCHIVE_URL = `https://github.com/${REPO_SLUG}/archive/refs/heads/main.zip`;
+const GITHUB_HEADERS = {
+  accept: 'application/vnd.github+json',
+  'cache-control': 'no-cache',
+  'user-agent': 'desked-cli',
+};
 const NPM_CMD = 'npm';
 const UPDATE_EXCLUDES = new Set(['.env', 'cloudflared.exe', 'cloudflared.exe.download', 'node_modules', '.git', '.vscode']);
 
@@ -273,7 +279,58 @@ function gitAvailable() {
   return !probe.error && probe.status === 0;
 }
 
-/** Copy an extracted release over the install directory, keeping user data. */
+async function fetchLatestRelease() {
+  try {
+    const res = await fetch(`${RELEASE_API_URL}?t=${Date.now()}`, {
+      signal: AbortSignal.timeout(4000),
+      headers: GITHUB_HEADERS,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function parseChecksums(text, assetName) {
+  for (const line of String(text).split(/\r?\n/)) {
+    const match = line.trim().match(/^([0-9a-f]{64})\s+\*?(.+)$/i);
+    if (match && match[2].trim() === assetName) return match[1].toLowerCase();
+  }
+  return null;
+}
+
+async function downloadTo(url, dest) {
+  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(120000) });
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  const out = fs.createWriteStream(dest);
+  const source = Readable.fromWeb(res.body);
+  source.on('error', (err) => out.destroy(err));
+  await new Promise((resolve, reject) => {
+    source.pipe(out);
+    out.on('finish', resolve);
+    out.on('error', reject);
+  });
+}
+
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+/** node --check the staged sources before touching the live install. */
+function verifySourceSyntax(dir) {
+  const files = ['server.js', 'cli.js', 'lib/auth.js', 'lib/config.js', 'lib/env-store.js', 'lib/password.js'];
+  for (const file of files) {
+    const result = spawnSync(process.execPath, ['--check', path.join(dir, file)], { stdio: 'ignore' });
+    if (result.error || result.status !== 0) {
+      console.error(`[Desked] Syntax check failed for ${file}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Copy source files (excluding runtime/user data) from src to dest. */
 function copyTree(src, dest) {
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     if (UPDATE_EXCLUDES.has(entry.name)) continue;
@@ -289,20 +346,54 @@ function copyTree(src, dest) {
   }
 }
 
-async function downloadAndExtract() {
-  const stamp = Date.now();
-  const zipPath = path.join(os.tmpdir(), `desked-update-${stamp}.zip`);
-  const extractDir = path.join(os.tmpdir(), `desked-update-${stamp}`);
+/**
+ * Download the update into a staging directory (never the live install).
+ * Prefers a GitHub Release asset and verifies SHA-256 when a SHA256SUMS asset
+ * is present; falls back to the main branch archive. Returns
+ * { sourceDir, cleanup } or null.
+ */
+async function stageUpdate(expectedVersion) {
+  const workDir = path.join(os.tmpdir(), `desked-update-${Date.now()}`);
+  const zipPath = path.join(workDir, 'update.zip');
+  const extractDir = path.join(workDir, 'extract');
+  fs.mkdirSync(workDir, { recursive: true });
+  const cleanup = () => fs.rmSync(workDir, { recursive: true, force: true });
+
   try {
-    console.log('[Desked] Downloading latest archive...');
-    const res = await fetch(ARCHIVE_URL, { redirect: 'follow', signal: AbortSignal.timeout(60000) });
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-    const out = fs.createWriteStream(zipPath);
-    await new Promise((resolve, reject) => {
-      Readable.fromWeb(res.body).pipe(out);
-      out.on('finish', resolve);
-      out.on('error', reject);
-    });
+    let downloadUrl = ARCHIVE_URL;
+    let expectedSha = null;
+
+    const release = await fetchLatestRelease();
+    if (release && Array.isArray(release.assets)) {
+      const zipAsset = release.assets.find((a) => /\.zip$/i.test(a.name));
+      const sumsAsset = release.assets.find((a) => /sha256sums/i.test(a.name));
+      if (zipAsset) {
+        downloadUrl = zipAsset.browser_download_url;
+        console.log(`[Desked] Downloading release ${release.tag_name}...`);
+        if (sumsAsset) {
+          const sumsRes = await fetch(sumsAsset.browser_download_url, {
+            signal: AbortSignal.timeout(8000),
+            headers: { 'cache-control': 'no-cache' },
+          });
+          if (sumsRes.ok) expectedSha = parseChecksums(await sumsRes.text(), zipAsset.name);
+        }
+      }
+    }
+    if (downloadUrl === ARCHIVE_URL) {
+      console.log('[Desked] Downloading latest archive (main branch)...');
+    }
+
+    await downloadTo(downloadUrl, zipPath);
+
+    if (expectedSha) {
+      const actual = sha256File(zipPath);
+      if (actual !== expectedSha) {
+        throw new Error(`SHA-256 mismatch (expected ${expectedSha}, got ${actual})`);
+      }
+      console.log('[Desked] Verified SHA-256.');
+    } else {
+      console.warn('[Desked] No SHA256SUMS asset found; verified version only.');
+    }
 
     console.log('[Desked] Extracting...');
     const expand = spawnSync('powershell.exe', [
@@ -311,33 +402,74 @@ async function downloadAndExtract() {
     ], { stdio: 'inherit' });
     if (expand.status !== 0) throw new Error('extraction failed');
 
-    const entries = fs.readdirSync(extractDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
-    const src = entries.length ? path.join(extractDir, entries[0]) : extractDir;
-    copyTree(src, ROOT);
-    return true;
+    const entries = fs.readdirSync(extractDir, { withFileTypes: true });
+    const sourceDir = entries.length === 1 && entries[0].isDirectory()
+      ? path.join(extractDir, entries[0].name)
+      : extractDir;
+
+    const pkgPath = path.join(sourceDir, 'package.json');
+    if (!fs.existsSync(pkgPath)) throw new Error('archive does not contain package.json');
+
+    const stagedVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
+    if (expectedVersion && stagedVersion !== expectedVersion) {
+      throw new Error(`archive version ${stagedVersion} does not match expected ${expectedVersion}`);
+    }
+
+    return { sourceDir, cleanup };
   } catch (err) {
     console.error(`[Desked] Update failed: ${err.message}`);
-    return false;
-  } finally {
-    fs.rmSync(zipPath, { force: true });
-    fs.rmSync(extractDir, { recursive: true, force: true });
+    cleanup();
+    return null;
   }
 }
 
-async function performUpdate() {
-  const isGit = fs.existsSync(path.join(ROOT, '.git')) && gitAvailable();
-  if (isGit) {
-    if (!runStep('Pulling latest changes (git)', 'git', ['pull', '--ff-only'])) {
-      console.error('[Desked] git pull failed. Commit/stash local changes and retry, or re-download the repo.');
-      return false;
-    }
-  } else if (!(await downloadAndExtract())) {
+function updateFromGit() {
+  if (!runStep('Pulling latest changes (git)', 'git', ['pull', '--ff-only'])) {
+    console.error('[Desked] git pull failed. Commit/stash local changes and retry, or re-download the repo.');
+    return false;
+  }
+  if (!verifySourceSyntax(ROOT)) return false;
+  if (!runStep('Installing dependencies', NPM_CMD, ['install'], { shell: true })) {
+    console.error('[Desked] Dependency install failed.');
+    return false;
+  }
+  return true;
+}
+
+async function updateFromArchive(expectedVersion) {
+  const staged = await stageUpdate(expectedVersion);
+  if (!staged) return false;
+
+  if (!verifySourceSyntax(staged.sourceDir)) {
+    staged.cleanup();
     return false;
   }
 
-  runStep('Installing dependencies', NPM_CMD, ['install'], { shell: true });
+  const backupDir = path.join(os.tmpdir(), `desked-backup-${Date.now()}`);
+  try {
+    fs.mkdirSync(backupDir, { recursive: true });
+    copyTree(ROOT, backupDir); // snapshot the current sources
+
+    copyTree(staged.sourceDir, ROOT); // apply the staged update
+
+    if (!runStep('Installing dependencies', NPM_CMD, ['install'], { shell: true })) {
+      console.error('[Desked] Dependency install failed. Rolling back...');
+      copyTree(backupDir, ROOT);
+      runStep('Restoring dependencies', NPM_CMD, ['install'], { shell: true });
+      return false;
+    }
+    return true;
+  } finally {
+    fs.rmSync(backupDir, { recursive: true, force: true });
+    staged.cleanup();
+  }
+}
+
+async function performUpdate(expectedVersion) {
+  const isGit = fs.existsSync(path.join(ROOT, '.git')) && gitAvailable();
+  const ok = isGit ? updateFromGit() : await updateFromArchive(expectedVersion);
+  if (!ok) return false;
+
   console.log('');
   console.log('[Desked] Update complete. Restart Desked to use the new version.');
   console.log('');
@@ -376,7 +508,7 @@ async function maybeOfferUpdate(opts = {}) {
     console.log('');
     return;
   }
-  await performUpdate();
+  await performUpdate(latest);
 }
 
 // ---------------------------------------------------------------- .env helpers
@@ -603,12 +735,22 @@ async function cmdUpdate(argv) {
   if (latest) {
     console.log(`Current version: ${current}`);
     console.log(`Latest version:  ${latest}`);
-    if (compareVersions(latest, current) <= 0) {
+    if (!opts.dryRun && compareVersions(latest, current) <= 0) {
       console.log('Already up to date.');
       return;
     }
   } else {
     console.log('Could not check the latest version; updating from the repository anyway.');
+  }
+
+  if (opts.dryRun) {
+    console.log('Dry run: staging and verifying the update without applying it.');
+    const staged = await stageUpdate(latest || undefined);
+    if (!staged) return;
+    const ok = verifySourceSyntax(staged.sourceDir);
+    staged.cleanup();
+    console.log(ok ? 'Dry run OK: staged update verified.' : 'Dry run failed.');
+    return;
   }
 
   if (!opts.yes && process.stdin.isTTY) {
@@ -618,7 +760,7 @@ async function cmdUpdate(argv) {
       return;
     }
   }
-  await performUpdate();
+  await performUpdate(latest);
 }
 
 function printHelp() {
@@ -646,13 +788,14 @@ function printHelp() {
   console.log('  --yes                Non-interactive (requires --password or --password-stdin)');
   console.log('  --no-download        Do not auto-download cloudflared.exe');
   console.log('  --no-update-check    Skip the version check on start');
+  console.log('  --dry-run            (update) Stage and verify without applying');
   console.log('');
   console.log('Tip: use "npm run setup", "npm start", "npm run password".');
   console.log('');
 }
 
 function parseFlags(argv) {
-  const opts = { password: '', passwordStdin: false, token: '', port: '', quick: false, yes: false, noDownload: false, noUpdateCheck: false };
+  const opts = { password: '', passwordStdin: false, token: '', port: '', quick: false, yes: false, noDownload: false, noUpdateCheck: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => argv[++i];
@@ -664,6 +807,7 @@ function parseFlags(argv) {
     else if (arg === '--yes' || arg === '-y') opts.yes = true;
     else if (arg === '--no-download') opts.noDownload = true;
     else if (arg === '--no-update-check') opts.noUpdateCheck = true;
+    else if (arg === '--dry-run') opts.dryRun = true;
     else if (arg.startsWith('--password=')) opts.password = arg.slice('--password='.length);
     else if (arg.startsWith('--token=')) opts.token = arg.slice('--token='.length);
     else if (arg.startsWith('--port=')) opts.port = arg.slice('--port='.length);

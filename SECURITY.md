@@ -28,6 +28,11 @@ feature is unavailable.
   bug materially harder to exploit while session tokens remain in `localStorage`.
 - `ws` is pinned to `>= 8.21.3` (fixes the fragmentation / memory-exhaustion DoS).
 - `cloudflared` is downloaded from a **pinned release** and its SHA-256 verified.
+- Desked binds to `HOST` (default `127.0.0.1`), so it is only reachable through
+  the local Cloudflare Tunnel unless the user explicitly opts into LAN exposure
+  with `HOST=0.0.0.0`.
+- Self-updates prefer a GitHub Release asset and verify it against the release's
+  `SHA256SUMS`; updates are staged, syntax-checked, and rolled back on failure.
 - `sharp` is kept at `0.35.x`; the unused `werift` dependency was removed to
   reduce the dependency surface.
 - CI runs `npm ci`, `node --check`, and the unit tests on Windows, and Dependabot

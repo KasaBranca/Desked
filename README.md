@@ -50,7 +50,7 @@ npm start
 | `npm run setup` | 対話形式のセットアップ（パスワード・トンネル・ポート） |
 | `npm start` | サーバー + トンネルを起動し公開 URL と QR コードを表示 |
 | `npm run password` | `.env` のパスワードを変更（`--password-stdin` 対応） |
-| `npm run update` | 最新バージョンに更新（`--yes` で確認省略、`--no-update-check` で起動時チェック無効） |
+| `npm run update` | 最新バージョンに更新（GitHub Release の SHA-256 を検証。`--yes` で確認省略、`--no-update-check` で起動時チェック無効） |
 | `npm run check` | 更新の有無だけを確認 |
 | `npm run install-service` | 管理者権限で自動起動タスクを登録 |
 | `npm run uninstall-service` | 自動起動タスクを削除 |
@@ -59,7 +59,7 @@ npm start
 
 | 項目 | デフォルト | 説明 |
 |------|-----------|------|
-| `HOST` | 0.0.0.0 | バインドするアドレス |
+| `HOST` | 127.0.0.1 | バインドアドレス。Cloudflare Tunnel 経由のみ許可（LANにも公開する場合は `0.0.0.0`） |
 | `PORT` | 3389 | サーバーポート（Windows RDP と衝突する場合は変更） |
 | `PASSWORD_HASH` | (必須) | scrypt ハッシュ。`npm run setup` / `npm run password` で設定（平文は保存されません） |
 | `TUNNEL_TOKEN` | (空) | 空なら Quick Tunnel（デフォルト）。設定すると名前付きトンネル |
@@ -99,7 +99,7 @@ npm run install-service
 
 ### ポートフォワーディング
 
-ルーターで外部ポート → 内部 IP:3389 を転送します。HTTPS 終端は別途用意してください。
+ルーターで外部ポート → 内部 IP:3389 を転送します。この場合は `.env` の `HOST=0.0.0.0` に変更してください（既定の `127.0.0.1` では外部から到達できません）。HTTPS 終端は別途用意してください。
 
 ## セキュリティ
 

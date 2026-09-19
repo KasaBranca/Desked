@@ -2,6 +2,25 @@
 
 All notable changes to Desked are documented here.
 
+## [1.4.0]
+
+### Security
+- Actually bind to `HOST` (`server.listen(port, host)`). Default is now
+  `127.0.0.1` so Desked is only reachable through the local Cloudflare Tunnel;
+  set `HOST=0.0.0.0` for direct LAN access.
+
+### Changed
+- Updates now prefer a **GitHub Release** asset and verify its SHA-256 against
+  the release's `SHA256SUMS` (falling back to the main-branch archive with a
+  version check when no release exists).
+- Updates are staged: download to a temp dir, verify the version and syntax,
+  back up the current sources, apply, then `npm install`; on failure the previous
+  version is restored.
+- `npm install` failures during update are now reported (previously ignored).
+
+### Added
+- Release workflow that publishes `desked-<tag>.zip` + `SHA256SUMS` on `v*` tags.
+
 ## [1.3.1]
 
 ### Changed

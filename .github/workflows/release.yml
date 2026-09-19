@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package source and checksum
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $zip = "desked-$tag.zip"
+          git archive --format=zip -o $zip HEAD
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $zip" | Out-File -FilePath SHA256SUMS -Encoding ascii
+          Get-Content SHA256SUMS
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release create $tag "desked-$tag.zip" SHA256SUMS --title $tag --generate-notes
