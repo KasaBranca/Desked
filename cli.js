@@ -36,6 +36,9 @@ const CLOUDFLARED_URL =
 
 // Update check / self-update
 const REPO_SLUG = 'KasaBranca/Desked';
+// Prefer the GitHub API: raw.githubusercontent is CDN-cached and can report a
+// stale version for several minutes after a push.
+const REMOTE_API_URL = `https://api.github.com/repos/${REPO_SLUG}/contents/package.json?ref=main`;
 const REMOTE_PACKAGE_URL = `https://raw.githubusercontent.com/${REPO_SLUG}/main/package.json`;
 const ARCHIVE_URL = `https://github.com/${REPO_SLUG}/archive/refs/heads/main.zip`;
 const NPM_CMD = 'npm';
@@ -216,13 +219,39 @@ function getLocalVersion() {
 }
 
 async function fetchLatestVersion() {
-  const res = await fetch(`${REMOTE_PACKAGE_URL}?t=${Date.now()}`, {
-    signal: AbortSignal.timeout(4000),
-    headers: { 'cache-control': 'no-cache' },
-  });
-  if (!res.ok) return null;
-  const pkg = await res.json();
-  return typeof pkg.version === 'string' ? pkg.version : null;
+  const headers = {
+    accept: 'application/vnd.github+json',
+    'cache-control': 'no-cache',
+    'user-agent': 'desked-cli',
+  };
+
+  try {
+    const res = await fetch(`${REMOTE_API_URL}&t=${Date.now()}`, {
+      signal: AbortSignal.timeout(4000),
+      headers,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.content === 'string') {
+        const pkg = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+        if (typeof pkg.version === 'string') return pkg.version;
+      }
+    }
+  } catch {
+    // fall through to the raw fallback
+  }
+
+  try {
+    const res = await fetch(`${REMOTE_PACKAGE_URL}?t=${Date.now()}`, {
+      signal: AbortSignal.timeout(4000),
+      headers: { 'cache-control': 'no-cache' },
+    });
+    if (!res.ok) return null;
+    const pkg = await res.json();
+    return typeof pkg.version === 'string' ? pkg.version : null;
+  } catch {
+    return null;
+  }
 }
 
 function runStep(description, command, args, opts = {}) {
