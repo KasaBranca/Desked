@@ -69,7 +69,9 @@ npm start
 
 ### Quick Tunnel（デフォルト）
 
-`cloudflared.exe` をプロジェクト直下に配置すると、`npm start` が以下を実行し、`https://<ランダム>.trycloudflare.com` を発行します。Cloudflare アカウントやトークンは不要ですが、URL は起動ごとに変わります。
+`cloudflared.exe` はリポジトリに含まれません（サイズのため）。`npm run setup` または `npm start` は未配置を検出すると自動ダウンロードを提案します（`--no-download` で無効化）。手動の場合は[こちら](https://github.com/cloudflare/cloudflared/releases)からプロジェクト直下に配置してください。
+
+起動すると以下を実行し、`https://<ランダム>.trycloudflare.com` を発行します。Cloudflare アカウントやトークンは不要ですが、URL は起動ごとに変わります。
 
 ```bash
 cloudflared tunnel --url http://localhost:3389
@@ -96,6 +98,12 @@ npm run install-service
 - WebSocket は同一オリジンのみ受け付けます（クロスサイト WebSocket ハイジャック対策）。
 - ログイン試行回数の制限とロックアウトを内蔵しています。
 - `cloudflared.exe`・ログ・スクリーンショットなどの実行時生成物はコミット対象外です。
+
+## トラブルシューティング
+
+- **`EADDRINUSE: address already in use :::3389`**: 既に別の Desked（常駐タスクなど）が 3389 番を使用しています。`Stop-ScheduledTask -TaskName 'DeskedServer'` で停止するか、`.env` の `PORT` を変更してください。
+- **`cloudflared.exe not found`**: `npm run setup` を実行して自動ダウンロードするか、手動でプロジェクト直下に配置してください。
+- **`InputHandler: Server is not elevated`**: 管理者アプリへ入力できません。`npm run install-service` で高整合性タスクとして起動してください。
 
 ## 操作方法
 

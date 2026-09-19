@@ -17,11 +17,16 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { Readable } = require('stream');
 const { spawn, spawnSync } = require('child_process');
 const envStore = require('./lib/env-store');
 
 const ROOT = envStore.ROOT;
 const CLOUDFLARED = path.join(ROOT, 'cloudflared.exe');
+const CLOUDFLARED_URL =
+  process.arch === 'arm64'
+    ? 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-arm64.exe'
+    : 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe';
 
 // ---------------------------------------------------------------- input helpers
 
@@ -93,6 +98,46 @@ async function promptNewPassword() {
       continue;
     }
     return first;
+  }
+}
+
+// ---------------------------------------------------------------- cloudflared
+
+async function downloadCloudflared() {
+  console.log('[Desked] Downloading cloudflared...');
+  const res = await fetch(CLOUDFLARED_URL, { redirect: 'follow' });
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+  const tmp = `${CLOUDFLARED}.download`;
+  const out = fs.createWriteStream(tmp);
+  await new Promise((resolve, reject) => {
+    Readable.fromWeb(res.body).pipe(out);
+    out.on('finish', resolve);
+    out.on('error', reject);
+  });
+  fs.renameSync(tmp, CLOUDFLARED);
+  console.log(`[Desked] Saved to ${CLOUDFLARED}`);
+}
+
+/** Ensure cloudflared.exe exists, offering to download it. Returns true when available. */
+async function ensureCloudflared(opts = {}) {
+  if (fs.existsSync(CLOUDFLARED)) return true;
+  if (opts.noDownload) return false;
+
+  if (!opts.assumeYes) {
+    const answer = (await question('cloudflared.exe not found. Download it now (~65 MB)? [Y/n]: '))
+      .trim()
+      .toLowerCase();
+    if (answer === 'n' || answer === 'no') return false;
+  }
+
+  try {
+    await downloadCloudflared();
+    return true;
+  } catch (err) {
+    console.error(`[Desked] Download failed: ${err.message}`);
+    console.error('[Desked] Download manually: https://github.com/cloudflare/cloudflared/releases');
+    return false;
   }
 }
 
@@ -180,6 +225,9 @@ async function cmdSetup(argv) {
   console.log(`  Tunnel: ${token ? 'Named Tunnel' : 'Quick Tunnel (default)'}`);
   console.log('');
 
+  await ensureCloudflared({ assumeYes: opts.yes, noDownload: opts.noDownload });
+  console.log('');
+
   if (!hadEnv) {
     console.log('Next: npm start   (starts the server + tunnel; the public URL is printed)');
     console.log('      npm run install-service   (start automatically at logon, elevated)');
@@ -189,23 +237,43 @@ async function cmdSetup(argv) {
   console.log('');
 }
 
-function cmdStart() {
+async function cmdStart(argv) {
   if (!fs.existsSync(envStore.ENV_PATH) || !envStore.get('PASSWORD')) {
     console.error('No password configured. Run: npm run setup');
     process.exit(1);
   }
   loadEnv();
 
+  const opts = parseFlags(argv);
   const port = process.env.PORT || '3389';
   const token = process.env.TUNNEL_TOKEN || '';
+
+  let hasCloudflared = fs.existsSync(CLOUDFLARED);
+  if (!hasCloudflared) {
+    hasCloudflared = await ensureCloudflared({ assumeYes: opts.yes, noDownload: opts.noDownload });
+    if (!hasCloudflared && !opts.noDownload) {
+      console.warn('[Desked] Running the server only (no tunnel).');
+    }
+  }
 
   console.log('[Desked] Starting server...');
   const server = spawn(process.execPath, ['server.js'], { cwd: ROOT, stdio: 'inherit' });
 
   let tunnel = null;
-  if (!fs.existsSync(CLOUDFLARED)) {
+  let shuttingDown = false;
+
+  // If the server cannot start (e.g. port already in use), stop everything.
+  server.on('exit', (code) => {
+    if (shuttingDown) return;
+    if (tunnel) {
+      try { tunnel.kill(); } catch (_) {}
+    }
+    process.exit(code == null ? 1 : code);
+  });
+
+  if (!hasCloudflared) {
     console.warn(`[Desked] cloudflared.exe not found at ${CLOUDFLARED}`);
-    console.warn('[Desked] Server only. Download cloudflared to enable the tunnel:');
+    console.warn('[Desked] Server only. Run "npm run setup" or download cloudflared:');
     console.warn('         https://github.com/cloudflare/cloudflared/releases');
   } else {
     const args = token
@@ -233,6 +301,7 @@ function cmdStart() {
   }
 
   const shutdown = () => {
+    shuttingDown = true;
     if (tunnel) {
       try { tunnel.kill(); } catch (_) {}
     }
@@ -283,13 +352,14 @@ function printHelp() {
   console.log('  --token <value>      Use a named tunnel with this Cloudflare token');
   console.log('  --port <number>      Server port (default 3389)');
   console.log('  --yes                Non-interactive (requires --password)');
+  console.log('  --no-download        Do not auto-download cloudflared.exe');
   console.log('');
   console.log('Tip: use "npm run setup", "npm start", "npm run password".');
   console.log('');
 }
 
 function parseFlags(argv) {
-  const opts = { password: '', token: '', port: '', quick: false, yes: false };
+  const opts = { password: '', token: '', port: '', quick: false, yes: false, noDownload: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => argv[++i];
@@ -298,6 +368,7 @@ function parseFlags(argv) {
     else if (arg === '--port') opts.port = next() || '';
     else if (arg === '--quick') opts.quick = true;
     else if (arg === '--yes' || arg === '-y') opts.yes = true;
+    else if (arg === '--no-download') opts.noDownload = true;
     else if (arg.startsWith('--password=')) opts.password = arg.slice('--password='.length);
     else if (arg.startsWith('--token=')) opts.token = arg.slice('--token='.length);
     else if (arg.startsWith('--port=')) opts.port = arg.slice('--port='.length);
@@ -320,7 +391,7 @@ async function main() {
       await cmdSetup(argv);
       break;
     case 'start':
-      cmdStart();
+      await cmdStart(argv);
       break;
     case 'password':
     case 'passwd':

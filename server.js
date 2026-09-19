@@ -689,6 +689,23 @@ function getLocalIp() {
 }
 
 // --- Start Server ---
+function handleServerError(err) {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error('');
+    console.error(`[Server] Port ${config.port} is already in use by another process.`);
+    console.error('[Server] Another Desked instance is probably running (e.g. the scheduled task).');
+    console.error('[Server] Stop it, or set a different PORT in .env.');
+    console.error('');
+  } else {
+    console.error('[Server] Server error:', err ? err.message : err);
+  }
+  process.exit(1);
+}
+
+// ws re-emits the HTTP server's error on the WebSocketServer, so listen on both.
+server.on('error', handleServerError);
+wss.on('error', handleServerError);
+
 server.listen(config.port, () => {
   const localIp = getLocalIp();
   console.log('');
