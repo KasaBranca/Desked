@@ -3,11 +3,17 @@
   "version": "1.0.0",
   "description": "Desked - self-hosted remote desktop web application",
   "main": "server.js",
+  "bin": {
+    "desked": "cli.js"
+  },
   "scripts": {
-    "start": "node server.js",
+    "setup": "node cli.js setup",
+    "start": "node cli.js start",
+    "start:server": "node server.js",
+    "password": "node cli.js password",
     "dev": "node --watch server.js",
-    "install-service": "node scripts/install-service.js",
-    "uninstall-service": "node scripts/uninstall-service.js",
+    "install-service": "node cli.js install",
+    "uninstall-service": "node cli.js uninstall",
     "create-task": "powershell.exe -ExecutionPolicy Bypass -File scripts/create-task.ps1"
   },
   "dependencies": {

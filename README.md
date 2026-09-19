@@ -7,37 +7,45 @@
 - 低遅延 H.264 ストリーミング（FFmpeg / NVENC・QSV・AMF・libx264 自動選択、失敗時は JPEG にフォールバック）
 - マウス・キーボード・マルチタッチ操作、仮想キーボード、Ctrl/Alt/Ctrl+Alt+Del 送信
 - パスワード認証、セッショントークン、ブルートフォース対策（試行回数制限・ロックアウト）
-- Cloudflare Tunnel による外部公開
+- Cloudflare Tunnel による外部公開（デフォルトはアカウント不要の **Quick Tunnel**）
+- ブラウザからのパスワード変更、CLI によるセットアップ
 
-## セットアップ
-
-### 1. 依存パッケージのインストール
+## セットアップ（CLI）
 
 ```bash
 npm install
+npm run setup
 ```
 
-### 2. 設定ファイルの作成
+`npm run setup` が対話形式で以下を設定し、`.env` に保存します。
 
-`.env.example` をコピーして `.env` を作成し、パスワードを設定します。
+1. **初回パスワード**（8文字以上・確認入力あり。入力は非表示）
+2. **トンネル方式** — デフォルトは **Quick Tunnel**（Enter で決定）。安定 URL が必要な場合のみ名前付きトークンを入力
+3. **ポート**（デフォルト 3389）
+
+非対話で実行する場合:
 
 ```bash
-copy .env.example .env
+node cli.js setup --yes --password <password> --quick --port 3389
 ```
 
-`.env` を開き、必ず推測されにくい長いパスワードに変更してください。
-
-```
-PASSWORD=your_secure_password_here
-```
-
-### 3. サーバー起動
+### 起動
 
 ```bash
 npm start
 ```
 
-起動後、`http://localhost:3389` でアクセスできます。
+サーバーと Cloudflare Tunnel をまとめて起動し、Quick Tunnel の公開 URL を表示します。サーバーのみ起動する場合は `npm run start:server`。
+
+### CLI コマンド
+
+| コマンド | 説明 |
+|----------|------|
+| `npm run setup` | 対話形式のセットアップ（パスワード・トンネル・ポート） |
+| `npm start` | サーバー + トンネルを起動し公開 URL を表示 |
+| `npm run password` | `.env` のパスワードを変更 |
+| `npm run install-service` | 管理者権限で自動起動タスクを登録 |
+| `npm run uninstall-service` | 自動起動タスクを削除 |
 
 ## 設定項目 (.env)
 
@@ -45,8 +53,8 @@ npm start
 |------|-----------|------|
 | `HOST` | 0.0.0.0 | バインドするアドレス |
 | `PORT` | 3389 | サーバーポート |
-| `PASSWORD` | (必須) | 認証パスワード |
-| `TUNNEL_TOKEN` | (任意) | Cloudflare Tunnel トークン。未設定時は一時的な quick tunnel を使用 |
+| `PASSWORD` | (必須) | 認証パスワード。`npm run setup` / `npm run password` で変更 |
+| `TUNNEL_TOKEN` | (空) | 空なら Quick Tunnel（デフォルト）。設定すると名前付きトンネル |
 | `CAPTURE_QUALITY` | 60 | 画質 (1-100) |
 | `CAPTURE_SCALE` | 0.6667 | キャプチャ解像度スケール (0.1-1.0) |
 | `TARGET_FPS` | 60 | JPEG モードの目標フレームレート |
@@ -59,23 +67,25 @@ npm start
 
 ## 外部アクセス
 
-### 方法1: Cloudflare Tunnel（推奨）
+### Quick Tunnel（デフォルト）
 
-`cloudflared.exe` をプロジェクト直下に配置し、`.env` に `TUNNEL_TOKEN` を設定します。
+`cloudflared.exe` をプロジェクト直下に配置すると、`npm start` が以下を実行し、`https://<ランダム>.trycloudflare.com` を発行します。Cloudflare アカウントやトークンは不要ですが、URL は起動ごとに変わります。
 
 ```bash
 cloudflared tunnel --url http://localhost:3389
 ```
 
-トークン付きの名前付きトンネルを常時起動する場合は、管理者権限で次を実行します。
+### 名前付きトンネル（安定 URL）
+
+`npm run setup` でトークンを入力する（または `.env` の `TUNNEL_TOKEN` を設定する）と、名前付きトンネルで起動します。常時起動するには管理者権限で:
 
 ```bash
 npm run install-service
 ```
 
-`DeskedServer`（高整合性レベル）と `DeskedTunnel` の 2 つのスケジュールタスクが登録されます。
+`DeskedServer`（高整合性レベル）と `DeskedTunnel` の 2 つのスケジュールタスクが登録され、トンネルの URL/ログは `cloudflare.log` に出力されます。
 
-### 方法2: ポートフォワーディング
+### ポートフォワーディング
 
 ルーターで外部ポート → 内部 IP:3389 を転送します。HTTPS 終端は別途用意してください。
 
@@ -99,7 +109,8 @@ npm run install-service
 - **キーボードボタン**: モバイルキーボード表示
 
 ### ツールバー
-- **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Quality** / **Scale** / **Disconnect**
+- **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Password** / **Quality** / **Scale** / **Disconnect**
+- PC（ツールバー非表示）では左上の鍵アイコンからパスワードを変更できます
 
 ## 技術スタック
 

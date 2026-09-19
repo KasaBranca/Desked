@@ -22,24 +22,34 @@ $dir       = Split-Path -Parent $PSScriptRoot
 $envFile   = Join-Path $dir ".env"
 $nodePath  = (Get-Command node -ErrorAction Stop).Source
 $cfExe     = Join-Path $dir "cloudflared.exe"
+if (-not (Test-Path $cfExe)) {
+    Write-Warning "cloudflared.exe not found at $cfExe — the tunnel task will fail until it is installed."
+}
 
-# ── Read TUNNEL_TOKEN from .env ───────────────────────────────────────────────
-$tunnelArgs = $null
+# ── Read PORT / TUNNEL_TOKEN from .env ───────────────────────────────────────
+$port  = 3389
+$token = $null
 if (Test-Path $envFile) {
     $envLines = Get-Content $envFile
     foreach ($line in $envLines) {
-        if ($line -match '^\s*TUNNEL_TOKEN\s*=\s*(.+)$') {
+        if ($line -match '^\s*PORT\s*=\s*(\d+)\s*$') {
+            $port = [int]$Matches[1]
+        }
+        elseif ($line -match '^\s*TUNNEL_TOKEN\s*=\s*(.+)$') {
             $token = $Matches[1].Trim().Trim('"').Trim("'")
-            $tunnelArgs = "tunnel --no-autoupdate --protocol http2 run --token $token"
-            break
         }
     }
 }
-if (-not $tunnelArgs) {
-    # Fallback: quick-tunnel (no token needed, URL printed to cloudflare.log)
-    $tunnelArgs = "tunnel --no-autoupdate --url http://localhost:3389"
-    Write-Warning "TUNNEL_TOKEN not found in .env — using quick-tunnel fallback."
+
+# Quick Tunnel is the default; a token switches to a named tunnel.
+if ($token) {
+    $tunnelArgs = "tunnel --no-autoupdate --protocol http2 run --token $token"
+    $tunnelMode = "named"
+} else {
+    $tunnelArgs = "tunnel --no-autoupdate --url http://localhost:$port"
+    $tunnelMode = "quick"
 }
+Write-Host "[i] Tunnel mode: $tunnelMode (port $port)" -ForegroundColor Gray
 
 $taskUser = "$env:USERDOMAIN\$env:USERNAME"
 
@@ -82,8 +92,8 @@ Write-Host "[+] DeskedServer registered." -ForegroundColor Green
 Write-Host "[*] Registering DeskedTunnel task..." -ForegroundColor Cyan
 
 $cfAction = New-ScheduledTaskAction `
-    -Execute $cfExe `
-    -Argument $tunnelArgs `
+    -Execute "cmd.exe" `
+    -Argument "/c .\cloudflared.exe $tunnelArgs > cloudflare.log 2>&1" `
     -WorkingDirectory $dir
 
 $cfPrincipal = New-ScheduledTaskPrincipal `
