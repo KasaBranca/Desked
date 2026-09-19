@@ -2,6 +2,11 @@
 
 All notable changes to Desked are documented here.
 
+## [1.4.1]
+
+### Changed
+- Removed the drop shadow from the login card.
+
 ## [1.4.0]
 
 ### Security
