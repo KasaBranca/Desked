@@ -1,0 +1,9 @@
+node_modules/
+.env
+start-hidden.vbs
+.vscode/
+
+# Runtime artifacts / secrets / large binaries
+*.log
+debug_frame.jpg
+cloudflared.exe

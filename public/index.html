@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Desked — Access your PC from anywhere">
+  <title>Desked</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=20260615-7">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="screen active">
+    <div class="login-bg">
+      <div class="login-orb login-orb-1"></div>
+      <div class="login-orb login-orb-2"></div>
+      <div class="login-orb login-orb-3"></div>
+    </div>
+    <div class="login-card">
+      <div class="login-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      </div>
+      <h1 class="login-title">Desked</h1>
+      <p class="login-subtitle">Enter password to connect</p>
+      <form id="login-form" autocomplete="off">
+        <div class="input-group">
+          <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" required>
+          <button type="submit" id="login-btn" class="btn-login">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"/>
+              <polyline points="12 5 19 12 12 19"/>
+            </svg>
+          </button>
+        </div>
+        <div id="login-error" class="login-error"></div>
+      </form>
+      <div id="connection-status" class="connection-status">
+        <span class="status-dot"></span>
+        <span class="status-text">Connecting...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Desked Screen -->
+  <div id="desktop-screen" class="screen">
+    <canvas id="remote-canvas"></canvas>
+    
+    <!-- Hidden input for mobile keyboard -->
+    <input type="text" id="hidden-keyboard-input" class="hidden-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+
+    <!-- Initial loading overlay -->
+    <div id="loading-overlay" class="overlay hidden">
+      <div class="overlay-content">
+        <div class="spinner"></div>
+        <p id="loading-text">Connecting to remote desktop...</p>
+        <p id="loading-detail" class="loading-detail" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <!-- Floating Toolbar -->
+    <div id="toolbar" class="toolbar">
+      <button id="toolbar-toggle" class="toolbar-btn toolbar-toggle" title="Menu">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+      <div id="toolbar-panel" class="toolbar-panel hidden">
+        <button id="btn-fullscreen" class="toolbar-btn" title="Fullscreen">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 3 21 3 21 9"/>
+            <polyline points="9 21 3 21 3 15"/>
+            <line x1="21" y1="3" x2="14" y2="10"/>
+            <line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+        </button>
+        <button id="btn-keyboard" class="toolbar-btn" title="Keyboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2" ry="2"/>
+            <line x1="6" y1="8" x2="6.01" y2="8"/>
+            <line x1="10" y1="8" x2="10.01" y2="8"/>
+            <line x1="14" y1="8" x2="14.01" y2="8"/>
+            <line x1="18" y1="8" x2="18.01" y2="8"/>
+            <line x1="6" y1="12" x2="6.01" y2="12"/>
+            <line x1="10" y1="12" x2="10.01" y2="12"/>
+            <line x1="14" y1="12" x2="14.01" y2="12"/>
+            <line x1="18" y1="12" x2="18.01" y2="12"/>
+            <line x1="8" y1="16" x2="16" y2="16"/>
+          </svg>
+        </button>
+        <button id="btn-ctrl" class="toolbar-btn modifier-btn" data-modifier="ctrl" title="Ctrl">
+          Ctrl
+        </button>
+        <button id="btn-alt" class="toolbar-btn modifier-btn" data-modifier="alt" title="Alt">
+          Alt
+        </button>
+        <button id="btn-cad" class="toolbar-btn" title="Ctrl+Alt+Del">
+          C+A+D
+        </button>
+        <div class="toolbar-separator"></div>
+        <div class="quality-control">
+          <label>Quality</label>
+          <input type="range" id="quality-slider" min="10" max="100" value="60" step="5">
+          <span id="quality-value">60</span>
+        </div>
+        <div class="quality-control">
+          <label>Scale</label>
+          <input type="range" id="scale-slider" min="25" max="100" value="75" step="5">
+          <span id="scale-value">75%</span>
+        </div>
+        <div class="toolbar-separator"></div>
+        <div class="toolbar-stats">
+          <span id="stats-fps">0 FPS</span>
+          <span id="stats-size">0 KB</span>
+          <span id="stats-resolution">-</span>
+        </div>
+        <div class="toolbar-separator"></div>
+        <button id="btn-disconnect" class="toolbar-btn btn-danger" title="Disconnect">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Disconnect
+        </button>
+      </div>
+    </div>
+
+  </div> <!-- Close Desktop Screen -->
+
+      <div id="mobile-input-container" class="mobile-input-container" style="pointer-events: all; position: fixed; z-index: 2000000000;">
+        <input type="text" id="mobile-text-input" placeholder="Tap to type..." autocomplete="off" autocapitalize="off" spellcheck="false" style="pointer-events: all; -webkit-user-select: text; user-select: text;">
+        <div class="mobile-input-actions">
+          <button id="mobile-input-bs" class="mobile-action-btn" title="Backspace">BS</button>
+          <button id="mobile-input-enter" class="mobile-action-btn" title="Enter">Enter</button>
+          <button id="mobile-input-send" class="mobile-send-btn" title="Send text only">Send</button>
+        </div>
+      </div>
+
+  <!-- Reconnect Overlay -->
+  <div id="reconnect-overlay" class="overlay hidden">
+    <div class="overlay-content">
+      <div class="spinner"></div>
+      <p>Connection lost. Reconnecting...</p>
+    </div>
+  </div>
+
+  <script src="js/canvas-renderer.js"></script>
+  <script src="js/video-renderer.js?v=20260615-7"></script>
+  <script src="js/input-capture.js?v=20260616-1"></script>
+  <script src="js/touch-handler.js"></script>
+  <script src="js/virtual-keyboard.js"></script>
+  <script src="js/app.js?v=20260615-5"></script>
+</body>
+</html>
