@@ -609,6 +609,23 @@
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('gesturechange', (e) => e.preventDefault());
 
+  // --- Insecure transport warning ---
+  // Chrome flags passwords submitted over plain HTTP as "compromised".
+  // Warn the user and nudge them to the HTTPS (Cloudflare Tunnel) URL.
+  (function warnIfInsecure() {
+    const host = location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    if (window.isSecureContext || isLocal) return;
+
+    const warning = document.createElement('div');
+    warning.className = 'insecure-warning';
+    warning.setAttribute('role', 'alert');
+    warning.textContent =
+      'この接続は保護されていません（HTTP）。パスワードと画面が盗聴されるおそれがあるため、HTTPS（Cloudflare Tunnel）のURLからアクセスしてください。';
+    const card = document.querySelector('.login-card');
+    if (card) card.insertBefore(warning, card.firstChild);
+  })();
+
   // --- Initial Connection ---
   connect();
 

@@ -2,6 +2,14 @@
 
 All notable changes to Desked are documented here.
 
+## [1.3.1]
+
+### Changed
+- Disable browser credential autofill on the login field (`autocomplete="off"`).
+- Add an in-app warning when the page is served over plain HTTP (Chrome flags
+  passwords submitted over HTTP as compromised). Use the HTTPS tunnel URL.
+- Send `Strict-Transport-Security` (HSTS) on HTTPS responses.
+
 ## [1.3.0]
 
 ### Changed

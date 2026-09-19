@@ -34,6 +34,8 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  // Only honoured over HTTPS (e.g. behind the Cloudflare Tunnel).
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000');
   next();
 });
 

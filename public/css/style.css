@@ -220,6 +220,18 @@ html, body {
   display: none;
 }
 
+/* Insecure (HTTP) transport warning — Material 3 error container */
+.insecure-warning {
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: #F9DEDC;   /* error-container */
+  color: #410E0B;        /* on-error-container */
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+}
+
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-6px); }

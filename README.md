@@ -129,6 +129,7 @@ npm test        # ユニットテスト (node:test)
 - **`EADDRINUSE: address already in use :::3389`**: 既に別の Desked（常駐タスクなど）が 3389 番を使用しています。`Stop-ScheduledTask -TaskName 'DeskedServer'` で停止するか、`.env` の `PORT` を変更してください。
 - **`cloudflared.exe not found`**: `npm run setup` を実行して自動ダウンロードするか、手動でプロジェクト直下に配置してください。
 - **`InputHandler: Server is not elevated`**: 管理者アプリへ入力できません。`npm run install-service` で高整合性タスクとして起動してください。
+- **Chromeが「パスワードが漏洩した可能性があります」と警告する**: 主に **HTTP（非HTTPS）でアクセスしている**場合に発生します。Cloudflare Tunnel の `https://...` URL からアクセスしてください。ログイン画面にも警告が表示されます。HTTPSで使っても警告が出る場合は、そのパスワードが漏洩リストに含まれている可能性があるため `npm run password` で新しいランダムなパスワードに変更してください。
 
 ## 操作方法
 
