@@ -1,6 +1,6 @@
 {
   "name": "desked",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Desked - self-hosted remote desktop web application",
   "main": "server.js",
   "bin": {
@@ -11,6 +11,8 @@
     "start": "node cli.js start",
     "start:server": "node server.js",
     "password": "node cli.js password",
+    "update": "node cli.js update",
+    "check": "node cli.js check",
     "test": "node --test",
     "dev": "node --watch server.js",
     "install-service": "node cli.js install",

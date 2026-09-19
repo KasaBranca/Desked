@@ -2,6 +2,15 @@
 
 All notable changes to Desked are documented here.
 
+## [1.2.0]
+
+### Added
+- On `npm start`, check GitHub for a newer version and offer to update.
+  If the user answers yes, Desked runs `git pull --ff-only` (or downloads and
+  overlays the latest archive for non-git installs) and then `npm install`.
+- `npm run update` to check and update on demand (`--yes`, `--no-update-check`).
+- `--no-update-check` flag / `DESKED_NO_UPDATE_CHECK=1` environment variable.
+
 ## [1.1.0]
 
 ### Security

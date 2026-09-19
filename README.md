@@ -40,6 +40,8 @@ npm start
 
 サーバーと Cloudflare Tunnel をまとめて起動し、Quick Tunnel の公開 URL とスマホで読み取れる **QR コード** を表示します。サーバーのみ起動する場合は `npm run start:server`。
 
+起動時に GitHub の最新バージョンを確認し、更新があれば `Update now? [y/N]` と確認します（yes で `git pull` / アーカイブ取得 → `npm install` を実行）。確認を止めるには `--no-update-check`、または環境変数 `DESKED_NO_UPDATE_CHECK=1` を設定します。
+
 ### CLI コマンド
 
 | コマンド | 説明 |
@@ -47,6 +49,8 @@ npm start
 | `npm run setup` | 対話形式のセットアップ（パスワード・トンネル・ポート） |
 | `npm start` | サーバー + トンネルを起動し公開 URL と QR コードを表示 |
 | `npm run password` | `.env` のパスワードを変更（`--password-stdin` 対応） |
+| `npm run update` | 最新バージョンに更新（`--yes` で確認省略、`--no-update-check` で起動時チェック無効） |
+| `npm run check` | 更新の有無だけを確認 |
 | `npm run install-service` | 管理者権限で自動起動タスクを登録 |
 | `npm run uninstall-service` | 自動起動タスクを削除 |
 

@@ -15,6 +15,7 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const readline = require('readline');
@@ -32,6 +33,13 @@ const CLOUDFLARED_VERSION = '2026.9.1';
 const CLOUDFLARED_SHA256 = '2837888cc0f5d58f15b6dc478376de90b4d3ba5241c7947455d1e0a0df429712';
 const CLOUDFLARED_URL =
   `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-windows-amd64.exe`;
+
+// Update check / self-update
+const REPO_SLUG = 'KasaBranca/Desked';
+const REMOTE_PACKAGE_URL = `https://raw.githubusercontent.com/${REPO_SLUG}/main/package.json`;
+const ARCHIVE_URL = `https://github.com/${REPO_SLUG}/archive/refs/heads/main.zip`;
+const NPM_CMD = 'npm';
+const UPDATE_EXCLUDES = new Set(['.env', 'cloudflared.exe', 'cloudflared.exe.download', 'node_modules', '.git', '.vscode']);
 
 // ---------------------------------------------------------------- input helpers
 
@@ -186,6 +194,162 @@ function printQr(url) {
   }
 }
 
+// ---------------------------------------------------------------- update check
+
+function compareVersions(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff) return diff > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+function getLocalVersion() {
+  try {
+    return require(path.join(ROOT, 'package.json')).version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+async function fetchLatestVersion() {
+  const res = await fetch(`${REMOTE_PACKAGE_URL}?t=${Date.now()}`, {
+    signal: AbortSignal.timeout(4000),
+    headers: { 'cache-control': 'no-cache' },
+  });
+  if (!res.ok) return null;
+  const pkg = await res.json();
+  return typeof pkg.version === 'string' ? pkg.version : null;
+}
+
+function runStep(description, command, args, opts = {}) {
+  console.log(`[Desked] ${description}`);
+  const result = spawnSync(command, args, { cwd: ROOT, stdio: 'inherit', ...opts });
+  if (result.error) {
+    console.error(`[Desked] ${description} failed: ${result.error.message}`);
+    return false;
+  }
+  if (result.status !== 0) {
+    console.error(`[Desked] ${description} exited with code ${result.status}`);
+    return false;
+  }
+  return true;
+}
+
+function gitAvailable() {
+  const probe = spawnSync('git', ['--version'], { stdio: 'ignore' });
+  return !probe.error && probe.status === 0;
+}
+
+/** Copy an extracted release over the install directory, keeping user data. */
+function copyTree(src, dest) {
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (UPDATE_EXCLUDES.has(entry.name)) continue;
+    if (entry.name.endsWith('.log') || entry.name === 'debug_frame.jpg') continue;
+    const from = path.join(src, entry.name);
+    const to = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      fs.mkdirSync(to, { recursive: true });
+      copyTree(from, to);
+    } else {
+      fs.copyFileSync(from, to);
+    }
+  }
+}
+
+async function downloadAndExtract() {
+  const stamp = Date.now();
+  const zipPath = path.join(os.tmpdir(), `desked-update-${stamp}.zip`);
+  const extractDir = path.join(os.tmpdir(), `desked-update-${stamp}`);
+  try {
+    console.log('[Desked] Downloading latest archive...');
+    const res = await fetch(ARCHIVE_URL, { redirect: 'follow', signal: AbortSignal.timeout(60000) });
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    const out = fs.createWriteStream(zipPath);
+    await new Promise((resolve, reject) => {
+      Readable.fromWeb(res.body).pipe(out);
+      out.on('finish', resolve);
+      out.on('error', reject);
+    });
+
+    console.log('[Desked] Extracting...');
+    const expand = spawnSync('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${extractDir}' -Force`,
+    ], { stdio: 'inherit' });
+    if (expand.status !== 0) throw new Error('extraction failed');
+
+    const entries = fs.readdirSync(extractDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+    const src = entries.length ? path.join(extractDir, entries[0]) : extractDir;
+    copyTree(src, ROOT);
+    return true;
+  } catch (err) {
+    console.error(`[Desked] Update failed: ${err.message}`);
+    return false;
+  } finally {
+    fs.rmSync(zipPath, { force: true });
+    fs.rmSync(extractDir, { recursive: true, force: true });
+  }
+}
+
+async function performUpdate() {
+  const isGit = fs.existsSync(path.join(ROOT, '.git')) && gitAvailable();
+  if (isGit) {
+    if (!runStep('Pulling latest changes (git)', 'git', ['pull', '--ff-only'])) {
+      console.error('[Desked] git pull failed. Commit/stash local changes and retry, or re-download the repo.');
+      return false;
+    }
+  } else if (!(await downloadAndExtract())) {
+    return false;
+  }
+
+  runStep('Installing dependencies', NPM_CMD, ['install'], { shell: true });
+  console.log('');
+  console.log('[Desked] Update complete. Restart Desked to use the new version.');
+  console.log('');
+  return true;
+}
+
+/**
+ * Check the latest version on GitHub and offer to update.
+ * Fails silently when offline; only prompts on an interactive terminal.
+ */
+async function maybeOfferUpdate(opts = {}) {
+  if (opts.noUpdateCheck || process.env.DESKED_NO_UPDATE_CHECK === '1') return;
+
+  let latest;
+  try {
+    latest = await fetchLatestVersion();
+  } catch {
+    return;
+  }
+  if (!latest) return;
+
+  const current = getLocalVersion();
+  if (compareVersions(latest, current) <= 0) return;
+
+  console.log('');
+  console.log(`  Update available: ${current} -> ${latest}  (https://github.com/${REPO_SLUG})`);
+  if (!process.stdin.isTTY) {
+    console.log('  Run "npm run update" to update.');
+    console.log('');
+    return;
+  }
+
+  const answer = (await question('Update now? [y/N]: ')).trim().toLowerCase();
+  if (answer !== 'y' && answer !== 'yes') {
+    console.log('  Skipped. Run "npm run update" at any time.');
+    console.log('');
+    return;
+  }
+  await performUpdate();
+}
+
 // ---------------------------------------------------------------- .env helpers
 
 function ensureEnv() {
@@ -291,6 +455,7 @@ async function cmdStart(argv) {
   loadEnv();
 
   const opts = parseFlags(argv);
+  await maybeOfferUpdate(opts);
   const port = process.env.PORT || '3389';
   const token = process.env.TUNNEL_TOKEN || '';
 
@@ -381,6 +546,52 @@ function cmdRunNodeScript(script) {
   process.exit(result.status == null ? 1 : result.status);
 }
 
+async function cmdCheck() {
+  const current = getLocalVersion();
+  let latest = null;
+  try {
+    latest = await fetchLatestVersion();
+  } catch {
+    latest = null;
+  }
+  console.log(`Current version: ${current}`);
+  console.log(`Latest version:  ${latest || 'unknown'}`);
+  if (latest) {
+    console.log(compareVersions(latest, current) > 0 ? 'Update available.' : 'Up to date.');
+  }
+}
+
+async function cmdUpdate(argv) {
+  const opts = parseFlags(argv);
+  const current = getLocalVersion();
+  let latest = null;
+  try {
+    latest = await fetchLatestVersion();
+  } catch {
+    latest = null;
+  }
+
+  if (latest) {
+    console.log(`Current version: ${current}`);
+    console.log(`Latest version:  ${latest}`);
+    if (compareVersions(latest, current) <= 0) {
+      console.log('Already up to date.');
+      return;
+    }
+  } else {
+    console.log('Could not check the latest version; updating from the repository anyway.');
+  }
+
+  if (!opts.yes && process.stdin.isTTY) {
+    const answer = (await question('Update now? [y/N]: ')).trim().toLowerCase();
+    if (answer !== 'y' && answer !== 'yes') {
+      console.log('Cancelled.');
+      return;
+    }
+  }
+  await performUpdate();
+}
+
 function printHelp() {
   console.log('');
   console.log('Desked CLI');
@@ -391,6 +602,8 @@ function printHelp() {
   console.log('  setup        Interactive setup: password + tunnel mode (Quick Tunnel default)');
   console.log('  start        Start the server and the tunnel, printing the public URL');
   console.log('  password     Change the password stored in .env');
+  console.log('  update       Update to the latest version from GitHub');
+  console.log('  check        Check whether a newer version is available');
   console.log('  install      Register the elevated Windows scheduled tasks');
   console.log('  uninstall    Remove the scheduled tasks');
   console.log('  help         Show this help');
@@ -403,13 +616,14 @@ function printHelp() {
   console.log('  --port <number>      Server port (default 3389)');
   console.log('  --yes                Non-interactive (requires --password or --password-stdin)');
   console.log('  --no-download        Do not auto-download cloudflared.exe');
+  console.log('  --no-update-check    Skip the version check on start');
   console.log('');
   console.log('Tip: use "npm run setup", "npm start", "npm run password".');
   console.log('');
 }
 
 function parseFlags(argv) {
-  const opts = { password: '', passwordStdin: false, token: '', port: '', quick: false, yes: false, noDownload: false };
+  const opts = { password: '', passwordStdin: false, token: '', port: '', quick: false, yes: false, noDownload: false, noUpdateCheck: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => argv[++i];
@@ -420,6 +634,7 @@ function parseFlags(argv) {
     else if (arg === '--quick') opts.quick = true;
     else if (arg === '--yes' || arg === '-y') opts.yes = true;
     else if (arg === '--no-download') opts.noDownload = true;
+    else if (arg === '--no-update-check') opts.noUpdateCheck = true;
     else if (arg.startsWith('--password=')) opts.password = arg.slice('--password='.length);
     else if (arg.startsWith('--token=')) opts.token = arg.slice('--token='.length);
     else if (arg.startsWith('--port=')) opts.port = arg.slice('--port='.length);
@@ -447,6 +662,12 @@ async function main() {
     case 'password':
     case 'passwd':
       await cmdPassword(argv);
+      break;
+    case 'update':
+      await cmdUpdate(argv);
+      break;
+    case 'check':
+      await cmdCheck();
       break;
     case 'install':
     case 'install-service':
