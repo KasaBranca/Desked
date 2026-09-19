@@ -2,6 +2,13 @@
 
 All notable changes to Desked are documented here.
 
+## [1.3.0]
+
+### Changed
+- Redesigned the UI as a **Material 3 light theme** (Roboto, M3 color roles,
+  shape scale, elevation, state layers).
+- Removed all gradients, including the animated login background orbs.
+
 ## [1.2.0]
 
 ### Added
