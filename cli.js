@@ -203,6 +203,37 @@ function printQr(url) {
   }
 }
 
+/**
+ * Shorten a URL with TinyURL (no API key) so it is easy to type by hand.
+ * Best effort: returns null on any failure so startup still prints the
+ * original URL.
+ */
+async function shortenUrl(url) {
+  try {
+    const res = await fetch(
+      `https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`,
+      { signal: AbortSignal.timeout(6000), headers: { 'user-agent': 'desked-cli' } }
+    );
+    if (!res.ok) return null;
+    const short = (await res.text()).trim();
+    return /^https?:\/\//i.test(short) ? short : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Print the public tunnel URL, its shortened form, and a QR code. */
+async function announceTunnelUrl(url) {
+  const short = await shortenUrl(url);
+  console.log('');
+  console.log(`  Cloudflare Tunnel URL: ${url}`);
+  console.log(`  Short URL:             ${short || '(unavailable, use the URL above)'}`);
+  console.log('  Scan to open on your phone:');
+  console.log('');
+  printQr(short || url);
+  console.log('');
+}
+
 // ---------------------------------------------------------------- update check
 
 function compareVersions(a, b) {
@@ -660,12 +691,7 @@ async function cmdStart(argv) {
       const match = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
       if (match && !urlPrinted) {
         urlPrinted = true;
-        console.log('');
-        console.log(`  Public URL: ${match[0]}`);
-        console.log('  Scan to open on your phone:');
-        console.log('');
-        printQr(match[0]);
-        console.log('');
+        announceTunnelUrl(match[0]).catch(() => {});
       }
     };
     tunnel.stdout.on('data', scan);

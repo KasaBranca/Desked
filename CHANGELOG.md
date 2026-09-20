@@ -2,6 +2,12 @@
 
 All notable changes to Desked are documented here.
 
+## [Unreleased]
+
+### Added
+- `npm start` now also prints a shortened TinyURL for the Cloudflare Tunnel URL.
+- Rewrote the README in English.
+
 ## [1.4.1]
 
 ### Changed
