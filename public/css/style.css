@@ -631,7 +631,8 @@ html, body {
 }
 
 #mobile-text-input {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   height: 48px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -654,6 +655,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 /* Material 3 text button */
@@ -707,6 +709,22 @@ html, body {
 .mobile-send-btn:active {
   transform: scale(0.92);
   background: var(--accent-hover);
+}
+
+/* Keep the input row inside the card on narrow phones. */
+@media (max-width: 400px) {
+  .mobile-input-container {
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .mobile-action-btn {
+    min-width: 40px;
+    padding: 0 8px;
+  }
+  .mobile-send-btn {
+    min-width: 56px;
+    padding: 0 12px;
+  }
 }
 
 /* ==========================================

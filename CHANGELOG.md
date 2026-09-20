@@ -2,6 +2,13 @@
 
 All notable changes to Desked are documented here.
 
+## [1.7.1]
+
+### Fixed
+- The mobile text-input row overflowed on narrow phones, pushing the **Send**
+  button outside the card. The input now shrinks (`min-width: 0`) and the
+  action buttons are compacted on screens up to 400 px wide.
+
 ## [1.7.0]
 
 ### Added
