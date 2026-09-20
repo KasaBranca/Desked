@@ -41,8 +41,10 @@ npm start
 ```
 
 This starts the server and the Cloudflare Tunnel together and prints the Quick
-Tunnel public URL, a **shortened URL** (TinyURL), and a **QR code** you can scan
-with your phone. Use `npm run start:server` to start the server only.
+Tunnel public URL, a **shortened URL** (from a public URL shortener), and a
+**QR code** you can scan with your phone. The same URLs are written to
+`cloudflare.log` when the tunnel is started by the VBS launchers or the
+scheduled task. Use `npm run start:server` to start the server only.
 
 On startup Desked checks GitHub for the latest version and asks
 `Update now? [y/N]` when an update exists (yes runs `git pull` / downloads the
@@ -94,7 +96,7 @@ project root.
 On startup it runs the following and issues a
 `https://<random>.trycloudflare.com` URL. No Cloudflare account or token is
 needed, but the URL changes on every start. `npm start` prints the issued URL,
-a shortened TinyURL, and a **QR code** you can scan with your phone.
+a shortened URL, and a **QR code** you can scan with your phone.
 
 ```bash
 cloudflared tunnel --url http://localhost:3389

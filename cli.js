@@ -193,47 +193,6 @@ async function ensureCloudflared(opts = {}) {
   }
 }
 
-/** Print a scannable QR code for the given URL (best effort). */
-function printQr(url) {
-  try {
-    const qrcode = require('qrcode-terminal');
-    qrcode.generate(url, { small: true });
-  } catch (_) {
-    console.log('[Desked] Install "qrcode-terminal" to display a QR code (npm install).');
-  }
-}
-
-/**
- * Shorten a URL with TinyURL (no API key) so it is easy to type by hand.
- * Best effort: returns null on any failure so startup still prints the
- * original URL.
- */
-async function shortenUrl(url) {
-  try {
-    const res = await fetch(
-      `https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`,
-      { signal: AbortSignal.timeout(6000), headers: { 'user-agent': 'desked-cli' } }
-    );
-    if (!res.ok) return null;
-    const short = (await res.text()).trim();
-    return /^https?:\/\//i.test(short) ? short : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-/** Print the public tunnel URL, its shortened form, and a QR code. */
-async function announceTunnelUrl(url) {
-  const short = await shortenUrl(url);
-  console.log('');
-  console.log(`  Cloudflare Tunnel URL: ${url}`);
-  console.log(`  Short URL:             ${short || '(unavailable, use the URL above)'}`);
-  console.log('  Scan to open on your phone:');
-  console.log('');
-  printQr(short || url);
-  console.log('');
-}
-
 // ---------------------------------------------------------------- update check
 
 function compareVersions(a, b) {
@@ -350,7 +309,16 @@ function sha256File(file) {
 
 /** node --check the staged sources before touching the live install. */
 function verifySourceSyntax(dir) {
-  const files = ['server.js', 'cli.js', 'lib/auth.js', 'lib/config.js', 'lib/env-store.js', 'lib/password.js'];
+  const files = [
+    'server.js',
+    'cli.js',
+    'lib/auth.js',
+    'lib/config.js',
+    'lib/env-store.js',
+    'lib/password.js',
+    'lib/tunnel-url.js',
+    'scripts/tunnel.js',
+  ];
   for (const file of files) {
     const result = spawnSync(process.execPath, ['--check', path.join(dir, file)], { stdio: 'ignore' });
     if (result.error || result.status !== 0) {
@@ -648,7 +616,6 @@ async function cmdStart(argv) {
 
   const opts = parseFlags(argv);
   await maybeOfferUpdate(opts);
-  const port = process.env.PORT || '3389';
   const token = process.env.TUNNEL_TOKEN || '';
 
   let hasCloudflared = fs.existsSync(CLOUDFLARED);
@@ -679,23 +646,11 @@ async function cmdStart(argv) {
     console.warn('[Desked] Server only. Run "npm run setup" or download cloudflared:');
     console.warn('         https://github.com/cloudflare/cloudflared/releases');
   } else {
-    const args = token
-      ? ['tunnel', '--no-autoupdate', '--protocol', 'http2', 'run', '--token', token]
-      : ['tunnel', '--no-autoupdate', '--url', `http://localhost:${port}`];
     console.log(`[Desked] Starting ${token ? 'named' : 'Quick'} Tunnel...`);
-    tunnel = spawn(CLOUDFLARED, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
-
-    let urlPrinted = false;
-    const scan = (data) => {
-      const text = data.toString();
-      const match = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
-      if (match && !urlPrinted) {
-        urlPrinted = true;
-        announceTunnelUrl(match[0]).catch(() => {});
-      }
-    };
-    tunnel.stdout.on('data', scan);
-    tunnel.stderr.on('data', scan);
+    // The supervisor prints the public URL, the short URL and a QR code, so
+    // the same behavior is shared with the VBS/task launchers.
+    const tunnelScript = path.join(ROOT, 'scripts', 'tunnel.js');
+    tunnel = spawn(process.execPath, [tunnelScript], { cwd: ROOT, stdio: 'inherit' });
     tunnel.on('exit', (code) => {
       if (code !== 0 && code !== null) console.error(`[Desked] cloudflared exited with code ${code}`);
     });

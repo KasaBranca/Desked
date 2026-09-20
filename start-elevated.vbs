@@ -52,13 +52,7 @@ WScript.Sleep 3000
 ' 3. Launch Cloudflare Tunnel (standard privilege is sufficient)
 '    Quick Tunnel by default; named tunnel when a token is set.
 ' ----------------------------------------------------------------
-Dim tunnelArgs
-If Len(token) > 0 Then
-  tunnelArgs = "tunnel --no-autoupdate --protocol http2 run --token """ & token & """"
-Else
-  tunnelArgs = "tunnel --no-autoupdate --url http://localhost:" & port
-End If
-
+' Launch Cloudflare Tunnel via the supervisor (prints the URL + short URL)
 Set wshShell = CreateObject("WScript.Shell")
 wshShell.CurrentDirectory = dir
-wshShell.Run "cmd /c .\cloudflared.exe " & tunnelArgs & " > cloudflare.log 2>&1", 0, False
+wshShell.Run "cmd /c node scripts\tunnel.js > cloudflare.log 2>&1", 0, False

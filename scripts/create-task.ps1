@@ -42,13 +42,7 @@ if (Test-Path $envFile) {
 }
 
 # Quick Tunnel is the default; a token switches to a named tunnel.
-if ($token) {
-    $tunnelArgs = "tunnel --no-autoupdate --protocol http2 run --token $token"
-    $tunnelMode = "named"
-} else {
-    $tunnelArgs = "tunnel --no-autoupdate --url http://localhost:$port"
-    $tunnelMode = "quick"
-}
+$tunnelMode = if ($token) { "named" } else { "quick" }
 Write-Host "[i] Tunnel mode: $tunnelMode (port $port)" -ForegroundColor Gray
 
 $taskUser = "$env:USERDOMAIN\$env:USERNAME"
@@ -93,7 +87,7 @@ Write-Host "[*] Registering DeskedTunnel task..." -ForegroundColor Cyan
 
 $cfAction = New-ScheduledTaskAction `
     -Execute "cmd.exe" `
-    -Argument "/c .\cloudflared.exe $tunnelArgs > cloudflare.log 2>&1" `
+    -Argument "/c `"$nodePath`" scripts\tunnel.js > cloudflare.log 2>&1" `
     -WorkingDirectory $dir
 
 $cfPrincipal = New-ScheduledTaskPrincipal `

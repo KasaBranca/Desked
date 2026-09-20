@@ -31,6 +31,8 @@ jobs:
           node --check lib/input-handler.js
           node --check lib/password.js
           node --check lib/screen-capture.js
+          node --check lib/tunnel-url.js
+          node --check scripts/tunnel.js
           node --check public/js/app.js
 
       - name: Unit tests

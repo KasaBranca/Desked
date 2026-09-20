@@ -2,10 +2,24 @@
 
 All notable changes to Desked are documented here.
 
+## [1.5.1]
+
+### Fixed
+- The startup short URL never appeared for Quick Tunnels. TinyURL (and is.gd,
+  v.gd, da.gd) reject `trycloudflare.com`, and the tunnel is launched by the
+  VBS/scheduled-task launchers rather than `cli.js`. The shortener now falls
+  back across several no-key providers, and the tunnel is started through a
+  shared supervisor (`scripts/tunnel.js`) that prints the public URL and short
+  URL wherever it runs, including `cloudflare.log`.
+
+### Added
+- `scripts/tunnel.js`, a Cloudflare Tunnel supervisor shared by `npm start`,
+  the VBS launchers, and the scheduled task.
+
 ## [1.5.0]
 
 ### Added
-- `npm start` now also prints a shortened TinyURL for the Cloudflare Tunnel URL.
+- `npm start` now also prints a shortened URL for the Cloudflare Tunnel URL.
 
 ### Changed
 - Rewrote the README in English.
