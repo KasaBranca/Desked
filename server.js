@@ -9,6 +9,7 @@ const screenCapture = require('./lib/screen-capture');
 const inputHandler = require('./lib/input-handler');
 const { HwH264Encoder, pickEncoder } = require('./lib/hw-h264-encoder');
 const { watchParent } = require('./lib/parent-watch');
+const { AudioStream } = require('./lib/audio-stream');
 
 // --- Express Setup ---
 const app = express();
@@ -140,6 +141,7 @@ function buildAuthPayload(token) {
     screenHeight: ed.height,
     stream: useH264 ? 'h264' : 'jpeg',
     fps: streamFps(),
+    audio: config.audioEnabled && !audioFailed,
   };
 }
 
@@ -214,6 +216,75 @@ function broadcastH264Frame(frame) {
 
 function clearH264BroadcastQueue() {
   h264OutPtsUs = 0;
+}
+
+// --- Audio (WASAPI loopback -> Opus) ---
+let audioStream = null;
+let audioHead = null;
+let audioFailed = false;
+
+function sendAudioInit(ws, head) {
+  if (!ws || ws.readyState !== ws.OPEN || ws._audio === false) return;
+  const buf = Buffer.alloc(5 + head.length);
+  buf[0] = 0x04;
+  buf.writeUInt32LE(head.length, 1);
+  head.copy(buf, 5);
+  ws.send(buf, { binary: true });
+}
+
+function broadcastAudioInit(head) {
+  for (const client of clients) sendAudioInit(client, head);
+}
+
+function sendAudioPacket(ws, pkt) {
+  if (!ws || ws.readyState !== ws.OPEN || ws._audio === false) return;
+  if (ws.bufferedAmount > 1024 * 1024) return;
+  const buf = Buffer.alloc(5 + pkt.length);
+  buf[0] = 0x05;
+  buf.writeUInt32LE(pkt.length, 1);
+  pkt.copy(buf, 5);
+  ws.send(buf, { binary: true });
+}
+
+function startAudio() {
+  if (!config.audioEnabled || audioFailed) return;
+  if (audioStream && audioStream.isRunning()) return;
+  try {
+    audioStream = new AudioStream({
+      ffmpegPath: config.ffmpegPath,
+      bitrate: config.audioBitrate,
+      onInit: (head) => {
+        audioHead = Buffer.from(head);
+        console.log(`[Server] Audio enabled (Opus ${config.audioBitrate} kbps)`);
+        broadcastAudioInit(audioHead);
+      },
+      onPacket: (pkt) => {
+        for (const client of clients) sendAudioPacket(client, pkt);
+      },
+      onError: () => {
+        stopAudio();
+        audioFailed = true;
+      },
+    });
+    const fmt = audioStream.start();
+    console.log(
+      `[Server] Audio capture started (${fmt.channels}ch ${fmt.sampleRate}Hz ${fmt.sampleFormat})`
+    );
+  } catch (err) {
+    console.warn('[Server] Audio disabled:', err.message);
+    audioStream = null;
+    audioFailed = true;
+  }
+}
+
+function stopAudio() {
+  if (audioStream) {
+    try {
+      audioStream.stop();
+    } catch (_) {}
+    audioStream = null;
+  }
+  audioHead = null;
 }
 
 let useH264 = config.streamMode === 'h264';
@@ -532,6 +603,7 @@ wss.on('connection', (ws, req) => {
   ws._tConnected = Date.now();
   ws._tAuthOk = 0;
   ws._sentFirstFrame = false;
+  ws._audio = true;
 
   let authenticated = false;
   let sessionToken = null;
@@ -555,10 +627,12 @@ wss.on('connection', (ws, req) => {
           clients.add(ws);
           screenCapture.forceFullFrame();
           startCapture();
+          startAudio();
           ws.send(JSON.stringify(buildAuthPayload(sessionToken)));
           if (useH264 && cachedAvcC) {
             sendH264Init(ws, cachedAvcC);
           }
+          if (audioHead) sendAudioInit(ws, audioHead);
           console.log(`[Server] Client re-authenticated via token from ${ip}`);
         } else {
           ws.send(JSON.stringify({ type: 'auth_result', success: false, error: 'Token expired' }));
@@ -573,10 +647,12 @@ wss.on('connection', (ws, req) => {
           clients.add(ws);
           screenCapture.forceFullFrame();
           startCapture();
+          startAudio();
           ws.send(JSON.stringify(buildAuthPayload(sessionToken)));
           if (useH264 && cachedAvcC) {
             sendH264Init(ws, cachedAvcC);
           }
+          if (audioHead) sendAudioInit(ws, audioHead);
           console.log(`[Server] Client authenticated from ${ip}`);
         } else {
           ws.send(JSON.stringify({ type: 'auth_result', success: false, error: result.error }));
@@ -589,6 +665,16 @@ wss.on('connection', (ws, req) => {
     // All other messages require authentication
     if (!authenticated) {
       ws.send(JSON.stringify({ type: 'error', error: 'Not authenticated' }));
+      return;
+    }
+
+    // Enable/disable audio for this client
+    if (msg.type === 'set_audio') {
+      ws._audio = msg.enabled !== false;
+      if (ws._audio) {
+        startAudio();
+        if (audioHead) sendAudioInit(ws, audioHead);
+      }
       return;
     }
 
@@ -635,6 +721,7 @@ wss.on('connection', (ws, req) => {
     console.log(`[Server] Client disconnected from ${ip}`);
     if (clients.size === 0) {
       stopCapture();
+      stopAudio();
     }
   });
 
@@ -668,6 +755,7 @@ function shutdown() {
     clearH264EncodeQueue();
     clearH264BroadcastQueue();
   }
+  stopAudio();
   screenCapture.destroy();
   wss.close();
   server.close();

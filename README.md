@@ -6,6 +6,7 @@ Windows PC from a phone or PC browser while you are away.
 ## Features
 
 - Low-latency H.264 streaming (FFmpeg; auto-selects NVENC / QSV / AMF / libx264, falls back to JPEG on failure)
+- System audio streaming (WASAPI loopback → Opus; no virtual audio cable needed) with a mute toggle
 - Mouse, keyboard, and multi-touch input, a virtual keyboard, and Ctrl / Alt / Ctrl+Alt+Del
 - Password authentication, session tokens, and brute-force protection (attempt limit + lockout)
 - Public access through Cloudflare Tunnel (defaults to an account-free **Quick Tunnel**)
@@ -88,6 +89,8 @@ archive, then `npm install`). To skip the check, pass `--no-update-check` or set
 | `H264_TARGET_FPS` / `H264_CAPTURE_FPS` | 24 | Output / capture FPS |
 | `H264_GOP` | 24 | Keyframe interval |
 | `H264_CQ` | 28 | Quality (lower is better) |
+| `AUDIO_ENABLED` | 1 | Stream the PC's system audio (set `0` to disable) |
+| `AUDIO_BITRATE` | 96 | Opus bitrate in kbps (16-320) |
 | `SESSION_TIMEOUT_HOURS` | 24 | Session lifetime (hours) |
 | `MAX_LOGIN_ATTEMPTS` | 5 | Login attempt limit |
 | `LOCKOUT_MINUTES` | 15 | Lockout duration (minutes) |
@@ -176,6 +179,11 @@ history.
   automatically, or place it in the project root manually.
 - **`InputHandler: Server is not elevated`**: input cannot reach elevated apps.
   Start it as a high-integrity task with `npm run install-service`.
+- **No audio / `[Server] Audio disabled`**: audio capture needs FFmpeg on
+  `PATH` (or `FFMPEG_PATH`) and a Windows audio output device. Audio uses
+  WASAPI loopback on the default speakers, so no "Stereo Mix" or virtual cable
+  is required. Press the toolbar **Audio** button if the browser blocked
+  autoplay.
 - **Chrome warns that "the password may have been compromised"**: this mostly
   happens when you access Desked over **HTTP (non-HTTPS)**. Use the Cloudflare
   Tunnel `https://...` URL. The login screen also shows a warning. If the
@@ -194,7 +202,9 @@ history.
 - **Keyboard button**: show the mobile keyboard
 
 ### Toolbar
-- **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Quality** / **Scale** / **Disconnect**
+- **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Audio** / **Quality** / **Scale** / **Disconnect**
+- **Audio** toggles system-audio playback (on by default). Because of browser
+  autoplay rules, start it from the login tap if it stays silent.
 - Change the password from the server-side CLI (`npm run password`)
 
 ## Tech stack

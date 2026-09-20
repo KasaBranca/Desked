@@ -33,8 +33,12 @@ jobs:
           node --check lib/screen-capture.js
           node --check lib/tunnel-url.js
           node --check lib/parent-watch.js
+          node --check lib/wasapi-loopback.js
+          node --check lib/ogg-opus.js
+          node --check lib/audio-stream.js
           node --check scripts/tunnel.js
           node --check public/js/app.js
+          node --check public/js/audio-player.js
 
       - name: Unit tests
         run: npm test

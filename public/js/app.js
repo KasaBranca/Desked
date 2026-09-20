@@ -28,6 +28,7 @@
   const btnCtrl = document.getElementById('btn-ctrl');
   const btnAlt = document.getElementById('btn-alt');
   const btnCad = document.getElementById('btn-cad');
+  const btnAudio = document.getElementById('btn-audio');
   const btnDisconnect = document.getElementById('btn-disconnect');
   const qualitySlider = document.getElementById('quality-slider');
   const qualityValue = document.getElementById('quality-value');
@@ -51,6 +52,12 @@
   const inputCapture = new InputCapture(canvas, canvasRenderer);
   const touchHandler = new TouchHandler(canvas, canvasRenderer, inputCapture);
   const virtualKeyboard = new VirtualKeyboard(inputCapture);
+
+  const audioPlayer = new AudioPlayer();
+  let audioAvailable = false;
+  audioPlayer.onStateChange = (on) => {
+    if (btnAudio) btnAudio.classList.toggle('active', on);
+  };
 
   canvasRenderer.onFirstFrame = () => {
     tFirstPaint = performance.now();
@@ -197,22 +204,28 @@
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
         const now = performance.now();
-        if (streamMode === 'h264') {
-          const u8 = new Uint8Array(event.data);
-          if (u8[0] === 0x01) {
+        const u8 = new Uint8Array(event.data);
+        const type = u8[0];
+
+        // Audio packets are mode-independent.
+        if (type === 0x04) {
+          audioPlayer.handleInitPacket(event.data);
+        } else if (type === 0x05) {
+          audioPlayer.handlePacket(event.data);
+        } else if (streamMode === 'h264') {
+          if (type === 0x01) {
             if (!tPacketH264Init) tPacketH264Init = now;
             videoRenderer.handleInitPacket(event.data).catch((e) => {
               console.error('[App] H.264 decoder init failed:', e);
             });
-          } else if (u8[0] === 0x02) {
+          } else if (type === 0x02) {
             if (!tPacketH264Frame) tPacketH264Frame = now;
             videoRenderer.handleFramePacket(event.data);
-          } else if (u8[0] === 0x03) {
+          } else if (type === 0x03) {
             handleWsBinaryChunk(event.data);
           }
         } else {
-          const ju8 = new Uint8Array(event.data);
-          if (ju8[0] === 0x03) {
+          if (type === 0x03) {
             handleWsBinaryChunk(event.data);
           } else {
             if (!tPacketJpeg) tPacketJpeg = now;
@@ -307,6 +320,16 @@
             statsResolution.textContent = `${msg.screenWidth}×${msg.screenHeight}`;
           }
 
+          // Audio (Opus) — enable by default when the server offers it.
+          audioAvailable = !!msg.audio && audioPlayer.available;
+          if (btnAudio) btnAudio.style.display = audioAvailable ? '' : 'none';
+          if (audioAvailable) {
+            audioPlayer.setEnabled(true);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'set_audio', enabled: true }));
+            }
+          }
+
           console.log('[App] Authenticated successfully');
         } else {
           // Auth failed
@@ -365,6 +388,8 @@
       ws = null;
     }
 
+    audioPlayer.setEnabled(false);
+    audioAvailable = false;
     videoRenderer.destroy();
     streamMode = 'jpeg';
     activeRenderer = canvasRenderer;
@@ -477,6 +502,8 @@
 
   loginForm.addEventListener('submit', (e) => {
     e.preventDefault();
+    // Unlock audio during the user gesture so playback is allowed later.
+    audioPlayer.unlock();
     const password = passwordInput.value.trim();
     if (!password) return;
 
@@ -535,6 +562,17 @@
   btnCad.addEventListener('click', () => {
     inputCapture.sendCtrlAltDel();
   });
+
+  if (btnAudio) {
+    btnAudio.addEventListener('click', () => {
+      const next = !audioPlayer.enabled;
+      audioPlayer.setEnabled(next);
+      if (next) audioPlayer.unlock();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'set_audio', enabled: next }));
+      }
+    });
+  }
 
   btnDisconnect.addEventListener('click', () => {
     disconnect();

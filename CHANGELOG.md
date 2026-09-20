@@ -2,6 +2,17 @@
 
 All notable changes to Desked are documented here.
 
+## [1.7.0]
+
+### Added
+- System audio streaming to the browser. The default speakers are captured
+  through **WASAPI loopback** (via `koffi`, no virtual audio cable or Stereo Mix
+  required), encoded to **Opus** with FFmpeg, and played with the WebCodecs
+  `AudioDecoder` + WebAudio. Includes a toolbar mute toggle.
+- `AUDIO_ENABLED` (default on) and `AUDIO_BITRATE` (default 96 kbps) settings.
+- `lib/wasapi-loopback.js`, `lib/ogg-opus.js`, `lib/audio-stream.js`, and the
+  browser `public/js/audio-player.js`.
+
 ## [1.6.1]
 
 ### Fixed

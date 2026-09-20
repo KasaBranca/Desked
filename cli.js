@@ -319,6 +319,9 @@ function verifySourceSyntax(dir) {
     'lib/password.js',
     'lib/tunnel-url.js',
     'lib/parent-watch.js',
+    'lib/wasapi-loopback.js',
+    'lib/ogg-opus.js',
+    'lib/audio-stream.js',
     'scripts/tunnel.js',
   ];
   for (const file of files) {
