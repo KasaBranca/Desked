@@ -2,6 +2,13 @@
 
 All notable changes to Desked are documented here.
 
+## [1.5.2]
+
+### Fixed
+- `npm start` now automatically re-executes itself after a self-update so the
+  new code (and the shared tunnel supervisor) takes effect immediately, instead
+  of continuing to run the old in-memory code until a manual restart.
+
 ## [1.5.1]
 
 ### Fixed

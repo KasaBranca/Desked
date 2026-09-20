@@ -470,7 +470,7 @@ async function performUpdate(expectedVersion) {
   if (!ok) return false;
 
   console.log('');
-  console.log('[Desked] Update complete. Restart Desked to use the new version.');
+  console.log('[Desked] Update complete.');
   console.log('');
   return true;
 }
@@ -480,34 +480,34 @@ async function performUpdate(expectedVersion) {
  * Fails silently when offline; only prompts on an interactive terminal.
  */
 async function maybeOfferUpdate(opts = {}) {
-  if (opts.noUpdateCheck || process.env.DESKED_NO_UPDATE_CHECK === '1') return;
+  if (opts.noUpdateCheck || process.env.DESKED_NO_UPDATE_CHECK === '1') return false;
 
   let latest;
   try {
     latest = await fetchLatestVersion();
   } catch {
-    return;
+    return false;
   }
-  if (!latest) return;
+  if (!latest) return false;
 
   const current = getLocalVersion();
-  if (compareVersions(latest, current) <= 0) return;
+  if (compareVersions(latest, current) <= 0) return false;
 
   console.log('');
   console.log(`  Update available: ${current} -> ${latest}  (https://github.com/${REPO_SLUG})`);
   if (!process.stdin.isTTY) {
     console.log('  Run "npm run update" to update.');
     console.log('');
-    return;
+    return false;
   }
 
   const answer = (await question('Update now? [y/N]: ')).trim().toLowerCase();
   if (answer !== 'y' && answer !== 'yes') {
     console.log('  Skipped. Run "npm run update" at any time.');
     console.log('');
-    return;
+    return false;
   }
-  await performUpdate(latest);
+  return performUpdate(latest);
 }
 
 // ---------------------------------------------------------------- .env helpers
@@ -615,7 +615,20 @@ async function cmdStart(argv) {
   loadEnv();
 
   const opts = parseFlags(argv);
-  await maybeOfferUpdate(opts);
+  const updated = await maybeOfferUpdate(opts);
+  if (updated) {
+    // The files on disk are new, but this process already loaded the old code.
+    // Re-exec so the updated CLI (and tunnel supervisor) takes over.
+    console.log('[Desked] Restarting with the updated version...');
+    console.log('');
+    const relaunchArgs = process.argv.slice(1);
+    if (!relaunchArgs.includes('--no-update-check')) relaunchArgs.push('--no-update-check');
+    const child = spawn(process.execPath, relaunchArgs, { cwd: ROOT, stdio: 'inherit' });
+    child.on('exit', (code) => process.exit(code == null ? 0 : code));
+    process.on('SIGINT', () => { try { child.kill('SIGINT'); } catch (_) {} });
+    process.on('SIGTERM', () => { try { child.kill('SIGTERM'); } catch (_) {} });
+    return;
+  }
   const token = process.env.TUNNEL_TOKEN || '';
 
   let hasCloudflared = fs.existsSync(CLOUDFLARED);
@@ -741,7 +754,8 @@ async function cmdUpdate(argv) {
       return;
     }
   }
-  await performUpdate(latest);
+  const ok = await performUpdate(latest);
+  if (ok) console.log('Restart Desked to use the new version.');
 }
 
 function printHelp() {
