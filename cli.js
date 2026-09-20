@@ -23,6 +23,7 @@ const { Readable } = require('stream');
 const { spawn, spawnSync } = require('child_process');
 const envStore = require('./lib/env-store');
 const passwordUtil = require('./lib/password');
+const { watchParent } = require('./lib/parent-watch');
 
 const ROOT = envStore.ROOT;
 const CLOUDFLARED = path.join(ROOT, 'cloudflared.exe');
@@ -317,6 +318,7 @@ function verifySourceSyntax(dir) {
     'lib/env-store.js',
     'lib/password.js',
     'lib/tunnel-url.js',
+    'lib/parent-watch.js',
     'scripts/tunnel.js',
   ];
   for (const file of files) {
@@ -670,6 +672,7 @@ async function cmdStart(argv) {
   }
 
   const shutdown = () => {
+    if (shuttingDown) return;
     shuttingDown = true;
     if (tunnel) {
       try { tunnel.kill(); } catch (_) {}
@@ -679,6 +682,10 @@ async function cmdStart(argv) {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // Closing the terminal on Windows raises SIGHUP (CTRL_CLOSE_EVENT).
+  process.on('SIGHUP', shutdown);
+  // If the shell/npm dies without delivering a signal, take the children down.
+  watchParent(shutdown);
 }
 
 async function cmdPassword(argv) {

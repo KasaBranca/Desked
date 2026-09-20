@@ -8,6 +8,7 @@ const auth = require('./lib/auth');
 const screenCapture = require('./lib/screen-capture');
 const inputHandler = require('./lib/input-handler');
 const { HwH264Encoder, pickEncoder } = require('./lib/hw-h264-encoder');
+const { watchParent } = require('./lib/parent-watch');
 
 // --- Express Setup ---
 const app = express();
@@ -675,6 +676,14 @@ function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+// Closing the terminal on Windows raises SIGHUP (CTRL_CLOSE_EVENT).
+process.on('SIGHUP', shutdown);
+// Fallback for abrupt parent death (hard kill, closed terminal) where no
+// signal is delivered: exit with the launcher instead of lingering.
+watchParent(() => {
+  console.log('[Server] Launcher exited; shutting down.');
+  shutdown();
+});
 
 // --- Get Local IP ---
 const os = require('os');

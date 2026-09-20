@@ -32,6 +32,7 @@ jobs:
           node --check lib/password.js
           node --check lib/screen-capture.js
           node --check lib/tunnel-url.js
+          node --check lib/parent-watch.js
           node --check scripts/tunnel.js
           node --check public/js/app.js
 

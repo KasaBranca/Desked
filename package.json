@@ -1,6 +1,6 @@
 {
   "name": "desked",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "Desked - self-hosted remote desktop web application",
   "main": "server.js",
   "bin": {

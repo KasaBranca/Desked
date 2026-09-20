@@ -46,6 +46,11 @@ Tunnel public URL, a **shortened URL** (from a public URL shortener), and a
 `cloudflare.log` when the tunnel is started by the VBS launchers or the
 scheduled task. Use `npm run start:server` to start the server only.
 
+Closing the terminal stops the server and the tunnel with it. cloudflared's
+verbose `INF` logs are hidden in an interactive terminal (warnings/errors and
+the URLs are still shown); redirected logs such as `cloudflare.log` keep the
+full output. Set `DESKED_TUNNEL_VERBOSE=1` to force the full output.
+
 On startup Desked checks GitHub for the latest version and asks
 `Update now? [y/N]` when an update exists (yes runs `git pull` / downloads the
 archive, then `npm install`). To skip the check, pass `--no-update-check` or set

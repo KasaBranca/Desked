@@ -2,6 +2,20 @@
 
 All notable changes to Desked are documented here.
 
+## [1.6.0]
+
+### Added
+- The server and tunnel now exit together with the launcher: closing the
+  terminal (or the CLI/shell process dying abruptly) stops `node` and
+  `cloudflared` instead of leaving them running. Implemented with a parent
+  watchdog plus `SIGHUP` handling.
+
+### Changed
+- cloudflared's verbose `INF` output is hidden in an interactive terminal
+  (warnings, errors, the public URL, the short URL, and the QR code are still
+  shown). Redirected output such as `cloudflare.log` keeps the full log. Set
+  `DESKED_TUNNEL_VERBOSE=1` to force the full output in a terminal.
+
 ## [1.5.2]
 
 ### Fixed
