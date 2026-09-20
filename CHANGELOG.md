@@ -2,6 +2,14 @@
 
 All notable changes to Desked are documented here.
 
+## [1.6.1]
+
+### Fixed
+- `npm start` and `npm run setup` now remove the legacy hidden Startup
+  launchers (`RemoteDesktop.vbs` / `Desked.vbs`). They started node and
+  cloudflared detached at logon, so they never stopped when the terminal
+  closed.
+
 ## [1.6.0]
 
 ### Added

@@ -524,11 +524,36 @@ function loadEnv() {
   require('dotenv').config({ path: envStore.ENV_PATH });
 }
 
+/**
+ * Legacy hidden launchers in the Startup folder start node/cloudflared
+ * detached at logon, so they never stop when the terminal closes. Remove the
+ * known ones (best effort) so the app is only started explicitly.
+ */
+function removeLegacyStartupLaunchers() {
+  if (!process.env.APPDATA) return;
+  const startupDir = path.join(
+    process.env.APPDATA,
+    'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'
+  );
+  for (const name of ['RemoteDesktop.vbs', 'Desked.vbs']) {
+    const file = path.join(startupDir, name);
+    try {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+        console.log(`[Desked] Removed legacy autostart launcher: ${file}`);
+      }
+    } catch (_) {
+      // Not fatal (missing permissions); the user can delete it manually.
+    }
+  }
+}
+
 // ---------------------------------------------------------------- commands
 
 async function cmdSetup(argv) {
   const hadEnv = fs.existsSync(envStore.ENV_PATH);
   ensureEnv();
+  removeLegacyStartupLaunchers();
 
   const opts = parseFlags(argv);
 
@@ -615,6 +640,7 @@ async function cmdStart(argv) {
     process.exit(1);
   }
   loadEnv();
+  removeLegacyStartupLaunchers();
 
   const opts = parseFlags(argv);
   const updated = await maybeOfferUpdate(opts);

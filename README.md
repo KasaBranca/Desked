@@ -46,6 +46,10 @@ Tunnel public URL, a **shortened URL** (from a public URL shortener), and a
 `cloudflare.log` when the tunnel is started by the VBS launchers or the
 scheduled task. Use `npm run start:server` to start the server only.
 
+`npm start` and `npm run setup` also remove the legacy hidden Startup
+launchers (`RemoteDesktop.vbs` / `Desked.vbs`), which used to start node and
+cloudflared detached at logon.
+
 Closing the terminal stops the server and the tunnel with it. cloudflared's
 verbose `INF` logs are hidden in an interactive terminal (warnings/errors and
 the URLs are still shown); redirected logs such as `cloudflare.log` keep the
