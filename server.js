@@ -30,10 +30,25 @@ const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
 ].join('; ');
 
+// The liquid-metal rim is an iframe of this page, so it must be frameable by
+// the app itself. It carries no user data; the relaxed script/style rules only
+// allow the embed's own inline shader and the adapter's injected <style>.
+const EMBED_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'self'",
+].join('; ');
+
 app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+  const isEmbed = req.path === '/liquid-metal-button.html';
+  res.setHeader('Content-Security-Policy', isEmbed ? EMBED_CSP : CONTENT_SECURITY_POLICY);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Frame-Options', isEmbed ? 'SAMEORIGIN' : 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
   // Only honoured over HTTPS (e.g. behind the Cloudflare Tunnel).

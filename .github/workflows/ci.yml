@@ -39,6 +39,8 @@ jobs:
           node --check scripts/tunnel.js
           node --check public/js/app.js
           node --check public/js/audio-player.js
+          node --check public/js/liquid-metal.js
+          node --check public/js/halftone-flow.js
 
       - name: Unit tests
         run: npm test

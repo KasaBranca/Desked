@@ -2,6 +2,25 @@
 
 All notable changes to Desked are documented here.
 
+## [1.9.0]
+
+### Added
+- Liquid-metal rim on the login password field, ported from the V2 search
+  form. The canonical `LiquidMetalButton` is served same-origin as
+  `public/liquid-metal-button.html` and embedded in an iframe that reveals the
+  travelling chrome edge on focus; `public/js/liquid-metal.js` adapts the
+  geometry and tames the bloom.
+- The V2 top-page halftone-flow WebGL background (`public/js/halftone-flow.js`)
+  behind the login card, reproduced from the canonical shader.
+
+### Changed
+- The password field and its submit button are now a single V2-style pill
+  (input + button inside one rim) instead of a field plus a detached button.
+- The login card no longer shows the gradient hairline at its top edge.
+- `/liquid-metal-button.html` is served with a relaxed script/style CSP and
+  `X-Frame-Options: SAMEORIGIN` so the app can frame it; all other routes keep
+  the strict policy and `DENY`.
+
 ## [1.8.0]
 
 ### Added
