@@ -2,6 +2,19 @@
 
 All notable changes to Desked are documented here.
 
+## [1.9.1]
+
+### Fixed
+- Content-Security-Policy violations on the login screen. The pixel-grid
+  loader delays and the audio button's hidden state are now CSS classes
+  instead of inline `style` attributes, and the liquid-metal adapter is baked
+  into `liquid-metal-button.html` instead of being injected at runtime.
+- The liquid-metal rim rendered as a thick white pill: the embed's document
+  now paints the card's surface color so the iframe's base canvas no longer
+  shows through the rim's overhang, and the bloom is toned down for the
+  smaller field.
+- Added a data-URI favicon (removes the `/favicon.ico` 404).
+
 ## [1.9.0]
 
 ### Added

@@ -12,9 +12,9 @@
   'use strict';
 
   var LM_PAD = 32;
-  // Turn down the white bloom that spills around the rim. Upstream defaults are
-  // glow: 1.95 / glowR: 1.30.
-  var LM_GLOW = { glow: 0.6, glowR: 0.8, glowIn: 0.1 };
+  // A subtle bloom only: the default spill (glow: 1.95 / glowR: 1.30) is sized
+  // for the wide V2 search bar and fills this smaller field's whole overhang.
+  var LM_GLOW = { glow: 0.22, glowR: 0.4, glowIn: 0 };
 
   function attachLiquidEdge(field, eager) {
     if (!field || field.dataset.lmReady === '1') return;
@@ -22,6 +22,7 @@
     field.classList.add('lm-field');
 
     var frame = null;
+    var loaded = false;
     var hover = function (v) {
       if (frame) {
         try { frame.contentWindow.__hover(v); } catch (_) {}
@@ -60,12 +61,15 @@
       frame.className = 'lm-ring';
       frame.setAttribute('aria-hidden', 'true');
       frame.tabIndex = -1;
-      frame.addEventListener('load', adapt);
+      // Only inject the adapter once the iframe's own document has loaded: the
+      // initial about:blank inherits the parent CSP, which would block the
+      // inline <style> and log a violation.
+      frame.addEventListener('load', function () { loaded = true; adapt(); });
       frame.src = '/liquid-metal-button.html';
       field.insertBefore(frame, field.firstChild);
     };
 
-    field.addEventListener('focusin', function () { ensureFrame(); adapt(); hover(1); });
+    field.addEventListener('focusin', function () { ensureFrame(); if (loaded) adapt(); hover(1); });
     field.addEventListener('focusout', function () { hover(0); });
     if (eager) ensureFrame();
   }

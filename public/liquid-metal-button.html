@@ -100,6 +100,37 @@
     transition-duration:.10s;
   }
 </style>
+<style id="lm-ring-adapter">
+  /* Embedded as a rim: the stage fills the iframe, the metal face is hidden and
+     only the authored outline shows. The .btn is inset by the same 32px the
+     hosting iframe overhangs, so the pill's edge lands on the field's border.
+     Baked in (rather than injected at runtime) so it applies before first paint
+     and needs no inline style injection. */
+  /* Match the login card surface: a transparent document would let the
+     iframe's base canvas (white) show through the rim's overhang. */
+  html, body {
+    background: #141414 !important;
+    width: 100% !important; height: 100% !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important; display: block !important;
+  }
+  .stage {
+    position: absolute !important; inset: 0 !important;
+    width: 100% !important; height: 100% !important;
+    padding: 0 !important; display: block !important;
+  }
+  .plate { display: none !important; }
+  .btn {
+    position: absolute !important; inset: 32px !important;
+    width: auto !important; height: auto !important;
+    pointer-events: none !important;
+  }
+  .btn .ico, .btn .lbl { display: none !important; }
+  #fx {
+    position: absolute !important; inset: 0 !important;
+    width: 100% !important; height: 100% !important;
+  }
+</style>
 </head>
 <body>
 <div class="stage" id="stage">

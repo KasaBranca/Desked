@@ -322,7 +322,7 @@
 
           // Audio (Opus) — enable by default when the server offers it.
           audioAvailable = !!msg.audio && audioPlayer.available;
-          if (btnAudio) btnAudio.style.display = audioAvailable ? '' : 'none';
+          if (btnAudio) btnAudio.classList.toggle('hidden', !audioAvailable);
           if (audioAvailable) {
             audioPlayer.setEnabled(true);
             if (ws && ws.readyState === WebSocket.OPEN) {
