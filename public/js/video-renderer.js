@@ -31,14 +31,20 @@ class VideoRenderer {
     this._pending = [];
     this._configPromise = null;
     this._presentationQueue = [];
-    this._presentationStarted = false;
     this._targetFps = 60;
     this._presentationIntervalMs = 1000 / this._targetFps;
     this._nextPresentationAt = 0;
     this._presentationRaf = 0;
     this._ensurePresentationLoop();
-    /** While decoder is not ready, drop deltas first so a key is not evicted by the cap. */
-    this._maxPendingChunks = 180;
+    /**
+     * While the decoder is not ready, keep at most this many chunks. On overflow
+     * we resync on a keyframe rather than feeding the decoder a GOP with holes.
+     */
+    this._maxPendingChunks = 60;
+    /** Cap the decoded-frame backlog so motion stays in sync with the stream. */
+    this._maxQueueFrames = 2;
+    /** If the decoder falls this far behind, wait for the next keyframe. */
+    this._maxDecodeQueue = 8;
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -109,7 +115,6 @@ class VideoRenderer {
     for (const frame of this._presentationQueue.splice(0)) {
       frame.close();
     }
-    this._presentationStarted = false;
     this._nextPresentationAt = 0;
     this._ensurePresentationLoop();
 
@@ -131,9 +136,8 @@ class VideoRenderer {
     this.decoder = new VideoDecoder({
       output: (frame) => {
         this._presentationQueue.push(frame);
-        if (this._presentationQueue.length > 12) {
-          const dropped = this._presentationQueue.shift();
-          dropped.close();
+        while (this._presentationQueue.length > this._maxQueueFrames) {
+          this._presentationQueue.shift().close();
         }
       },
       error: (e) => {
@@ -153,21 +157,15 @@ class VideoRenderer {
 
   _presentFrame() {
     const now = performance.now();
-    if (!this._presentationStarted && this._presentationQueue.length >= 4) {
-      this._presentationStarted = true;
-      this._nextPresentationAt = now;
+
+    // Bound latency: if frames arrive faster than we present (dynamic video,
+    // games, a recovering network), keep only the freshest one. Presenting a
+    // backlog would replay stale motion and make input feel laggy.
+    while (this._presentationQueue.length > 1) {
+      this._presentationQueue.shift().close();
     }
 
-    if (
-      this._presentationStarted &&
-      this._presentationQueue.length > 0 &&
-      now >= this._nextPresentationAt
-    ) {
-      while (this._presentationQueue.length > 8) {
-        const dropped = this._presentationQueue.shift();
-        dropped.close();
-      }
-
+    if (this._presentationQueue.length > 0 && now >= this._nextPresentationAt) {
       const frame = this._presentationQueue.shift();
       try {
         const w = frame.displayWidth || frame.codedWidth;
@@ -190,16 +188,10 @@ class VideoRenderer {
         frame.close();
       }
 
-      this._nextPresentationAt += this._presentationIntervalMs;
-      if (this._nextPresentationAt < now - this._presentationIntervalMs) {
-        this._nextPresentationAt = now + this._presentationIntervalMs;
-      }
+      // Present at the stream cadence; never accumulate catch-up bursts.
+      this._nextPresentationAt = now + this._presentationIntervalMs;
     }
 
-    if (this._presentationStarted && this._presentationQueue.length === 0) {
-      this._presentationStarted = false;
-      this._nextPresentationAt = 0;
-    }
     this._presentationRaf = requestAnimationFrame(() => this._presentFrame());
   }
 
@@ -210,11 +202,15 @@ class VideoRenderer {
   }
 
   _trimPendingQueue() {
-    while (this._pending.length > this._maxPendingChunks) {
-      const di = this._pending.findIndex((c) => c.type === 'delta');
-      if (di >= 0) this._pending.splice(di, 1);
-      else this._pending.shift();
+    if (this._pending.length <= this._maxPendingChunks) return;
+    // Dropping individual deltas leaves a GOP with holes the decoder cannot
+    // resolve (visible corruption). Drop the whole backlog and wait for a
+    // fresh keyframe instead.
+    for (const chunk of this._pending) {
+      if (chunk && typeof chunk.close === 'function') chunk.close();
     }
+    this._pending = [];
+    this._needsKeyframe = true;
   }
 
   _decodeChunk(chunk) {
@@ -272,6 +268,13 @@ class VideoRenderer {
       this._pending.push(chunk);
       this._trimPendingQueue();
       return;
+    }
+    // If the decoder is falling behind, resync on the next keyframe rather than
+    // letting the backlog grow into seconds of latency. A single delta cannot
+    // be dropped in place (its successors reference it), so we skip the rest of
+    // the GOP and wait for an IDR.
+    if (this.decoder && this.decoder.decodeQueueSize > this._maxDecodeQueue) {
+      this._needsKeyframe = true;
     }
     this._decodeChunk(chunk);
   }
@@ -357,7 +360,6 @@ class VideoRenderer {
     for (const frame of this._presentationQueue.splice(0)) {
       frame.close();
     }
-    this._presentationStarted = false;
     this._nextPresentationAt = 0;
     if (this.decoder) {
       try {

@@ -2,6 +2,23 @@
 
 All notable changes to Desked are documented here.
 
+## [1.9.4]
+
+### Fixed
+- Severe latency while watching fast motion (games, full-screen video). The
+  browser buffered 4–12 decoded frames before painting and replayed that stale
+  backlog over the live stream. The H.264 renderer now draws the newest decoded
+  frame and discards the rest, so motion stays in sync with the network.
+- Blocky "noise" during fast motion. The hardware H.264 encoders were capped at
+  2–4 Mbps, far too low for 720p24 game/video content; the cap is now 8 Mbps
+  (NVENC/QSV/AMF/libx264) and QSV runs with `async_depth 1` for lower latency.
+- Garbage frames after a slow client fell behind. When the WebSocket send
+  buffer filled, the server dropped individual P-frames, breaking the H.264
+  reference chain until the next keyframe. It now stops at the last decodable
+  frame and resumes cleanly on the next keyframe.
+- The decoder and its pending queue dropped individual chunks (GOP holes) while
+  resyncing. Both now discard the whole backlog and wait for a keyframe.
+
 ## [1.9.3]
 
 ### Changed

@@ -175,12 +175,15 @@ let h264OutPtsUs = 0;
  *  JPEG/H.264 frames fit in ONE message (previously 4KB caused 10-50x chunk overhead). */
 const WS_BINARY_MSG_MAX = 256 * 1024;
 const WS_BINARY_CHUNK_HDR = 15; // 0x03 + u32 id + u32 total + u32 off + u16 len
+/**
+ * Per-client WebSocket send backlog at which we stop queueing new frames.
+ * Anything above this is already video the client will play late, so it is
+ * better to drop than to grow the delay.
+ */
+const WS_SEND_HIGH_WATER = 1 * 1024 * 1024;
 let wsBinaryFragSeq = 0;
 
-function sendBinaryMaybeChunked(ws, pkt, streamLabel) {
-  if (!ws || ws.readyState !== ws.OPEN) return;
-  // Drop frames only when truly backed up; 512KB was too tight once chunks became 256KB.
-  if (ws.bufferedAmount > 4 * 1024 * 1024) return;
+function sendBinaryChunks(ws, pkt) {
   const chunkPayloadMax = WS_BINARY_MSG_MAX - WS_BINARY_CHUNK_HDR;
   const useChunks = pkt.length > WS_BINARY_MSG_MAX;
   const fragId = useChunks ? (++wsBinaryFragSeq) >>> 0 : 0;
@@ -202,16 +205,48 @@ function sendBinaryMaybeChunked(ws, pkt, streamLabel) {
         ws.send(chunk, { binary: true });
       }
     }
-    if (!ws._sentFirstFrame) {
-      ws._sentFirstFrame = true;
-      const now = Date.now();
-      const dConn = ws._tConnected ? now - ws._tConnected : -1;
-      const dAuth = ws._tAuthOk ? now - ws._tAuthOk : -1;
-      console.log(
-        `[Server] First ${streamLabel} frame sent to ${ws._socket?.remoteAddress || 'client'} after ${dConn}ms (auth+${dAuth}ms)`
-      );
-    }
   } catch (_) {}
+}
+
+function logFirstFrame(ws, streamLabel) {
+  if (ws._sentFirstFrame) return;
+  ws._sentFirstFrame = true;
+  const now = Date.now();
+  const dConn = ws._tConnected ? now - ws._tConnected : -1;
+  const dAuth = ws._tAuthOk ? now - ws._tAuthOk : -1;
+  console.log(
+    `[Server] First ${streamLabel} frame sent to ${ws._socket?.remoteAddress || 'client'} after ${dConn}ms (auth+${dAuth}ms)`
+  );
+}
+
+/**
+ * H.264 frames form a reference chain: dropping a single P-frame corrupts every
+ * following frame until the next IDR, which the user sees as noise. On
+ * backpressure we therefore put the client into a "resync" state and resume
+ * only at the next keyframe, trading a short freeze for a clean picture.
+ */
+function sendH264Frame(ws, pkt, key) {
+  if (!ws || ws.readyState !== ws.OPEN) return;
+  if (ws._resyncH264) {
+    if (!key) return;
+    if (ws.bufferedAmount > WS_SEND_HIGH_WATER) return;
+    ws._resyncH264 = false;
+  } else if (ws.bufferedAmount > WS_SEND_HIGH_WATER) {
+    if (!key) {
+      ws._resyncH264 = true;
+      return;
+    }
+  }
+  sendBinaryChunks(ws, pkt);
+  logFirstFrame(ws, 'H.264');
+}
+
+/** JPEG frames are independent, so dropping whole frames under backpressure is safe. */
+function sendJpegFrame(ws, pkt) {
+  if (!ws || ws.readyState !== ws.OPEN) return;
+  if (ws.bufferedAmount > WS_SEND_HIGH_WATER) return;
+  sendBinaryChunks(ws, pkt);
+  logFirstFrame(ws, 'JPEG');
 }
 
 function broadcastH264Frame(frame) {
@@ -225,7 +260,7 @@ function broadcastH264Frame(frame) {
   frame.data.copy(pkt, 14);
 
   for (const client of clients) {
-    sendBinaryMaybeChunked(client, pkt, 'H.264');
+    sendH264Frame(client, pkt, frame.key);
   }
 }
 
@@ -551,8 +586,8 @@ async function captureLoop() {
             for (const client of clients) {
               if (client.readyState !== client.OPEN) continue;
               try {
-                // sendBinaryMaybeChunked has its own (larger) bufferedAmount gate.
-                sendBinaryMaybeChunked(client, payload, 'JPEG');
+                // sendJpegFrame drops whole (independent) frames under backpressure.
+                sendJpegFrame(client, payload);
               } catch (_) {
                 // Client disconnected
               }
@@ -618,6 +653,7 @@ wss.on('connection', (ws, req) => {
   ws._tConnected = Date.now();
   ws._tAuthOk = 0;
   ws._sentFirstFrame = false;
+  ws._resyncH264 = false;
   ws._audio = true;
 
   let authenticated = false;
