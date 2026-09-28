@@ -2,6 +2,13 @@
 
 All notable changes to Desked are documented here.
 
+## [1.9.3]
+
+### Changed
+- The mobile bottom text field now reuses the login password field's V2 pill
+  (`input-group`) and gets the same liquid-metal rim on focus. The BS/Enter/Send
+  buttons are kept on their own layer above the field's bloom.
+
 ## [1.9.2]
 
 ### Fixed

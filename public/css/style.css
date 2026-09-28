@@ -800,33 +800,21 @@ html, body {
   pointer-events: all;
 }
 
-#mobile-text-input {
+/* Reuses the login `.input-group` pill (border, surface, focus glow) so the
+   bottom text field matches the password field. */
+.mobile-text-field {
   flex: 1 1 0;
   min-width: 0;
-  height: 48px;
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
-  padding: 0 16px;
-  color: var(--ink);
-  font-family: var(--font);
-  font-size: 16px;
-  outline: none;
+}
+
+#mobile-text-input {
   -webkit-user-select: text;
   user-select: text;
-  transition: var(--transition);
-}
-
-#mobile-text-input:focus {
-  border-color: transparent;
-  box-shadow: var(--shadow-glow);
-}
-
-#mobile-text-input::placeholder {
-  color: #6b6b6b;
 }
 
 .mobile-input-actions {
+  position: relative;
+  z-index: 2; /* keep BS/Enter/Send above the field's overhanging bloom */
   display: flex;
   align-items: center;
   gap: 8px;

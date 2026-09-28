@@ -74,6 +74,8 @@
     if (eager) ensureFrame();
   }
 
-  var field = document.querySelector('#login-form .input-group');
-  if (field) attachLiquidEdge(field, true);
+  var fields = document.querySelectorAll(
+    '#login-form .input-group, .mobile-input-container .input-group'
+  );
+  for (var i = 0; i < fields.length; i++) attachLiquidEdge(fields[i], true);
 })();
