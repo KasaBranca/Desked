@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="description" content="Desked — Access your PC from anywhere">
-  <meta name="theme-color" content="#FEF7FF">
+  <meta name="theme-color" content="#090909">
   <title>Desked</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260920-1">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=20260928-v2">
 </head>
 <body>
   <!-- Login Screen -->
@@ -53,7 +53,17 @@
     <!-- Initial loading overlay -->
     <div id="loading-overlay" class="overlay hidden">
       <div class="overlay-content">
-        <div class="spinner"></div>
+        <div class="px-grid" aria-hidden="true">
+          <span class="px-cell" style="animation-delay:90ms"></span>
+          <span class="px-cell" style="animation-delay:180ms"></span>
+          <span class="px-cell" style="animation-delay:270ms"></span>
+          <span class="px-cell" style="animation-delay:0ms"></span>
+          <span class="px-cell" style="animation-delay:90ms"></span>
+          <span class="px-cell" style="animation-delay:180ms"></span>
+          <span class="px-cell" style="animation-delay:90ms"></span>
+          <span class="px-cell" style="animation-delay:180ms"></span>
+          <span class="px-cell" style="animation-delay:270ms"></span>
+        </div>
         <p id="loading-text">Connecting to remote desktop...</p>
         <p id="loading-detail" class="loading-detail" aria-live="polite"></p>
       </div>
@@ -150,7 +160,17 @@
   <!-- Reconnect Overlay -->
   <div id="reconnect-overlay" class="overlay hidden">
     <div class="overlay-content">
-      <div class="spinner"></div>
+      <div class="px-grid" aria-hidden="true">
+        <span class="px-cell" style="animation-delay:90ms"></span>
+        <span class="px-cell" style="animation-delay:180ms"></span>
+        <span class="px-cell" style="animation-delay:270ms"></span>
+        <span class="px-cell" style="animation-delay:0ms"></span>
+        <span class="px-cell" style="animation-delay:90ms"></span>
+        <span class="px-cell" style="animation-delay:180ms"></span>
+        <span class="px-cell" style="animation-delay:90ms"></span>
+        <span class="px-cell" style="animation-delay:180ms"></span>
+        <span class="px-cell" style="animation-delay:270ms"></span>
+      </div>
       <p>Connection lost. Reconnecting...</p>
     </div>
   </div>

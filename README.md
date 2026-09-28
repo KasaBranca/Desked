@@ -61,12 +61,19 @@ On startup Desked checks GitHub for the latest version and asks
 archive, then `npm install`). To skip the check, pass `--no-update-check` or set
 `DESKED_NO_UPDATE_CHECK=1`.
 
+`npm run restart` applies the same check *before* restarting, then restarts
+unattended: it bounces the `DeskedServer` / `DeskedTunnel` scheduled tasks when
+they are installed, or stops the running server and starts it again in the
+current terminal otherwise. Beyond the optional update confirmation it never
+prompts, so it is safe to run from a script.
+
 ### CLI commands
 
 | Command | Description |
 |---------|-------------|
 | `npm run setup` | Interactive setup (password, tunnel, port) |
 | `npm start` | Start the server + tunnel and print the public/short URLs and QR code |
+| `npm run restart` | Restart Desked. Checks for an update first (the only prompt), then restarts with no further questions |
 | `npm run password` | Change the password in `.env` (`--password-stdin` supported) |
 | `npm run update` | Update to the latest version (verifies the GitHub Release SHA-256; `--yes` skips the prompt, `--no-update-check` disables the startup check) |
 | `npm run check` | Only check whether an update is available |
@@ -174,7 +181,10 @@ history.
 
 - **`EADDRINUSE: address already in use :::3389`**: another Desked instance
   (such as the resident task) is already using port 3389. Stop it with
-  `Stop-ScheduledTask -TaskName 'DeskedServer'` or change `PORT` in `.env`.
+  `npm run restart` (or `Stop-ScheduledTask -TaskName 'DeskedServer'`), or
+  change `PORT` in `.env`.
+- **Changes to `.env`, the password or the code are not picked up**: run
+  `npm run restart` to reload the running instance.
 - **`cloudflared.exe not found`**: run `npm run setup` to download it
   automatically, or place it in the project root manually.
 - **`InputHandler: Server is not elevated`**: input cannot reach elevated apps.

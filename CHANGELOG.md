@@ -2,6 +2,21 @@
 
 All notable changes to Desked are documented here.
 
+## [1.8.0]
+
+### Added
+- `npm run restart` (`node cli.js restart`). It checks for an update first
+  (the only prompt) and then restarts **unattended**: it bounces the
+  `DeskedServer` / `DeskedTunnel` scheduled tasks when they are installed, or
+  stops the running server and starts it again in the current terminal
+  otherwise. Pass `--no-update-check` to skip the version check.
+
+### Changed
+- The web UI now uses the V2 "Framer-inspired" dark design system: the Inter
+  typeface, `#090909` surfaces with hairline borders, pill-shaped fields with
+  an accent focus glow, glass toolbars/overlays, a gradient card hairline and
+  the pixel-grid loader. Markup and behavior are unchanged.
+
 ## [1.7.1]
 
 ### Fixed

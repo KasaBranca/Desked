@@ -4,6 +4,7 @@
  *
  *   node cli.js setup       Interactive setup (password + tunnel mode)
  *   node cli.js start       Start the server and the tunnel (Quick Tunnel by default)
+ *   node cli.js restart     Restart Desked in place (offers an update first)
  *   node cli.js password    Change the password in .env
  *   node cli.js install     Register the elevated Windows scheduled tasks
  *   node cli.js uninstall   Remove the scheduled tasks
@@ -732,6 +733,163 @@ async function cmdPassword(argv) {
   console.log('Restart the server for the change to take effect.');
 }
 
+// ---------------------------------------------------------------- restart
+
+/** Block the current thread for a few hundred ms (synchronous sleep). */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function getConfiguredPort() {
+  const port = parseInt(envStore.get('PORT') || '3389', 10);
+  return Number.isFinite(port) ? port : 3389;
+}
+
+/** True when a Windows scheduled task with this name is registered. */
+function scheduledTaskExists(name) {
+  if (process.platform !== 'win32') return false;
+  const probe = spawnSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command',
+    `if (Get-ScheduledTask -TaskName '${name}' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }`,
+  ], { stdio: 'ignore' });
+  return !probe.error && probe.status === 0;
+}
+
+/**
+ * Stop and start the elevated scheduled tasks (DeskedServer / DeskedTunnel).
+ * The tasks are restarted without any prompt so this can run unattended.
+ */
+function restartScheduledTasks() {
+  const list = ['DeskedServer', 'DeskedTunnel'].map((n) => `'${n}'`).join(',');
+  const ps = (command) => spawnSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command', command,
+  ], { stdio: 'inherit' });
+
+  console.log('[Desked] Stopping the scheduled tasks...');
+  const stop = ps(`Stop-ScheduledTask -TaskName ${list} -ErrorAction SilentlyContinue`);
+  if (stop.error) {
+    console.error(`[Desked] Could not stop the scheduled tasks: ${stop.error.message}`);
+    return false;
+  }
+
+  // Give the old node/cloudflared processes a moment to release the port.
+  sleepSync(1500);
+
+  console.log('[Desked] Starting the scheduled tasks...');
+  const start = ps(`Start-ScheduledTask -TaskName ${list}`);
+  if (start.error || start.status !== 0) {
+    console.error('[Desked] Could not start the scheduled tasks.');
+    console.error('         Run this command from an elevated (Administrator) terminal.');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * PIDs of node.exe processes listening on the configured port.
+ * Uses netstat/tasklist instead of Get-NetTCPConnection so it works without
+ * administrator rights (the cmdlet returns nothing in an unelevated shell).
+ */
+function pidsListeningOnPort(port) {
+  if (process.platform !== 'win32') return [];
+  const result = spawnSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8' });
+  if (result.error || !result.stdout) return [];
+
+  const suffix = `:${port}`;
+  const candidates = new Set();
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length < 5) continue;
+    const [proto, local, , state, pid] = cols;
+    if (proto.toUpperCase() !== 'TCP') continue;
+    if (state.toUpperCase() !== 'LISTENING') continue;
+    if (!local.endsWith(suffix)) continue;
+    const value = parseInt(pid, 10);
+    if (Number.isInteger(value) && value > 0) candidates.add(value);
+  }
+
+  const pids = [];
+  for (const pid of candidates) {
+    const proc = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8' });
+    if (proc.stdout && /node\.exe/i.test(proc.stdout)) pids.push(pid);
+  }
+  return pids;
+}
+
+/** Best-effort: stop cloudflared processes launched from this install. */
+function stopCloudflaredInstances() {
+  if (process.platform !== 'win32') return;
+  const script =
+    "Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" -ErrorAction SilentlyContinue " +
+    `| Where-Object { $_.ExecutablePath -eq '${CLOUDFLARED.replace(/'/g, "''")}' } ` +
+    '| Select-Object -ExpandProperty ProcessId';
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+  });
+  if (result.error || !result.stdout) return;
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const pid = parseInt(line.trim(), 10);
+    if (Number.isInteger(pid) && pid > 0) {
+      try { process.kill(pid); } catch (_) {}
+    }
+  }
+}
+
+/**
+ * Restart Desked without any prompt. When the scheduled tasks are installed we
+ * bounce those; otherwise the currently running server is stopped and a fresh
+ * `start` is launched in this terminal (replacing this process).
+ */
+function restartInPlace(opts) {
+  const port = getConfiguredPort();
+  const pids = pidsListeningOnPort(port);
+  if (pids.length) {
+    console.log(`[Desked] Stopping the running server (PID ${pids.join(', ')})...`);
+    for (const pid of pids) {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    }
+  } else {
+    console.log(`[Desked] No running server found on port ${port}.`);
+  }
+  stopCloudflaredInstances();
+  sleepSync(800);
+
+  console.log('[Desked] Starting server...');
+  const relaunchArgs = [path.join(ROOT, 'cli.js'), 'start', '--no-update-check'];
+  if (opts && opts.noDownload) relaunchArgs.push('--no-download');
+  const child = spawn(process.execPath, relaunchArgs, { cwd: ROOT, stdio: 'inherit' });
+  child.on('exit', (code) => process.exit(code == null ? 0 : code));
+  process.on('SIGINT', () => { try { child.kill('SIGINT'); } catch (_) {} });
+  process.on('SIGTERM', () => { try { child.kill('SIGTERM'); } catch (_) {} });
+}
+
+/**
+ * `restart`: optionally update first (the only prompt), then restart with no
+ * further questions so it can be used unattended.
+ */
+async function cmdRestart(argv) {
+  const opts = parseFlags(argv);
+
+  // The update confirmation happens before the restart runs.
+  const updated = await maybeOfferUpdate(opts);
+  if (updated) {
+    console.log('[Desked] Update applied.');
+    console.log('');
+  }
+
+  if (process.platform === 'win32' && scheduledTaskExists('DeskedServer')) {
+    const ok = restartScheduledTasks();
+    console.log('');
+    console.log(ok
+      ? '  ✅ Desked restarted (scheduled tasks).'
+      : '  ✗ Restart failed. Check the messages above and use an elevated terminal.');
+    console.log('');
+    return;
+  }
+
+  restartInPlace(opts);
+}
+
 function cmdRunNodeScript(script) {
   const result = spawnSync(process.execPath, [script], { cwd: ROOT, stdio: 'inherit' });
   process.exit(result.status == null ? 1 : result.status);
@@ -803,6 +961,7 @@ function printHelp() {
   console.log('Commands:');
   console.log('  setup        Interactive setup: password + tunnel mode (Quick Tunnel default)');
   console.log('  start        Start the server and the tunnel, printing the public URL');
+  console.log('  restart      Restart Desked (offers an update first, then no prompts)');
   console.log('  password     Change the password stored in .env');
   console.log('  update       Update to the latest version from GitHub');
   console.log('  check        Check whether a newer version is available');
@@ -862,6 +1021,10 @@ async function main() {
       break;
     case 'start':
       await cmdStart(argv);
+      break;
+    case 'restart':
+    case 'reload':
+      await cmdRestart(argv);
       break;
     case 'password':
     case 'passwd':
