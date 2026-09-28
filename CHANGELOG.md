@@ -2,6 +2,14 @@
 
 All notable changes to Desked are documented here.
 
+## [1.9.2]
+
+### Fixed
+- The login connection status ("Connecting…"/"Connected") was painted over by
+  the liquid-metal field's bloom on focus. The status is no longer static, so
+  it now sits on its own layer above the field's overhanging iframe instead of
+  being clipped by it.
+
 ## [1.9.1]
 
 ### Fixed

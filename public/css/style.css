@@ -338,6 +338,10 @@ html, body {
 
 /* Connection Status */
 .connection-status {
+  /* Match the field's z-index (2) and sit above it: the liquid-metal iframe
+     overhangs 32px below the field and would otherwise paint over the status. */
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
