@@ -2,6 +2,17 @@
 
 All notable changes to Desked are documented here.
 
+## [1.9.5]
+
+### Fixed
+- `npm run restart` now closes the PowerShell/cmd window that launched the
+  previous server together with its whole process tree (`npm` → CLI → server →
+  tunnel). Previously only `server.js` was killed, so every restart left the
+  old window and its CLI/npm processes behind and the process list grew without
+  bound. The launcher is resolved from the running server's parent chain, and
+  the current window's process tree is excluded, so restarting from the active
+  window still works (it just cannot close itself).
+
 ## [1.9.4]
 
 ### Fixed

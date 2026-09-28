@@ -25,6 +25,12 @@ const { spawn, spawnSync } = require('child_process');
 const envStore = require('./lib/env-store');
 const passwordUtil = require('./lib/password');
 const { watchParent } = require('./lib/parent-watch');
+const {
+  getProcessTable,
+  ancestorPids,
+  findLauncherPid,
+  isDeskedServer,
+} = require('./lib/process-tree');
 
 const ROOT = envStore.ROOT;
 const CLOUDFLARED = path.join(ROOT, 'cloudflared.exe');
@@ -320,6 +326,7 @@ function verifySourceSyntax(dir) {
     'lib/password.js',
     'lib/tunnel-url.js',
     'lib/parent-watch.js',
+    'lib/process-tree.js',
     'lib/wasapi-loopback.js',
     'lib/ogg-opus.js',
     'lib/audio-stream.js',
@@ -842,10 +849,37 @@ function stopCloudflaredInstances() {
  */
 function restartInPlace(opts) {
   const port = getConfiguredPort();
-  const pids = pidsListeningOnPort(port);
-  if (pids.length) {
-    console.log(`[Desked] Stopping the running server (PID ${pids.join(', ')})...`);
-    for (const pid of pids) {
+  const listening = pidsListeningOnPort(port);
+  const table = getProcessTable();
+  const selfAncestors = new Set(ancestorPids(process.pid, table));
+
+  // Only touch processes we can positively identify as Desked's server, so an
+  // unrelated node app that happens to hold the port is never disturbed.
+  const serverPids = table.size
+    ? listening.filter((pid) => isDeskedServer(table.get(pid)))
+    : listening;
+
+  // Find the shell (PowerShell/cmd) that launched the running server. Closing
+  // its whole tree stops the old CLI/npm/server/tunnel and closes the window,
+  // otherwise every restart leaves another one behind.
+  let launcherPid = null;
+  for (const pid of serverPids) {
+    const candidate = findLauncherPid(pid, table);
+    if (candidate && !selfAncestors.has(candidate)) {
+      launcherPid = candidate;
+      break;
+    }
+  }
+
+  if (launcherPid) {
+    const info = table.get(launcherPid);
+    console.log(
+      `[Desked] Closing the previous ${info ? info.name : 'launcher'} window (PID ${launcherPid}) and its processes...`
+    );
+    spawnSync('taskkill', ['/PID', String(launcherPid), '/T', '/F'], { stdio: 'ignore' });
+  } else if (serverPids.length) {
+    console.log(`[Desked] Stopping the running server (PID ${serverPids.join(', ')})...`);
+    for (const pid of serverPids) {
       spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
     }
   } else {
