@@ -225,6 +225,7 @@ history.
 - **Keyboard button**: show the mobile keyboard
 
 ### Toolbar
+- Open the menu at the top right on either a PC or a phone.
 - **入力：操作 / 入力：文字** / **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Audio** / **Quality** / **Scale** / **Disconnect**
 - **Audio** toggles system-audio playback (on by default). Because of browser
   autoplay rules, start it from the login tap if it stays silent.

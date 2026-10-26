@@ -5,6 +5,9 @@ All notable changes to Desked are documented here.
 ## [Unreleased]
 
 ### Fixed
+- The top-right menu is now visible on desktop PCs as well as phones. The
+  desktop pointer media query only hides the mobile text row, so input-mode
+  switching and the other toolbar controls remain accessible with a mouse.
 - Restored default keyboard controls for games/apps without requiring pointer
   lock. Movement/jump/modifier keys now stay down until their matching key-up;
   Alt is forwarded in key-control mode. The toolbar switches between key

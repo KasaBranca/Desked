@@ -893,7 +893,6 @@ html, body {
    PC / Desktop Overrides
    ========================================== */
 @media (pointer: fine) {
-  #toolbar,
   #mobile-input-container {
     display: none !important;
   }
