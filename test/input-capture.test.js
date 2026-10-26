@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function client() {
+function client(mode = 'text') {
   const messages = [];
   const elements = new Map();
   class Target {
@@ -14,7 +14,8 @@ function client() {
       this.value = '';
       this.style = {};
       this.handlers = new Map();
-      this.classList = { add() {}, remove() {} };
+      this.classList = { add() {}, remove() {}, toggle() {} };
+      this.attributes = {};
     }
     addEventListener(type, handler) {
       if (!this.handlers.has(type)) this.handlers.set(type, []);
@@ -36,14 +37,17 @@ function client() {
     }
     focus() { document.activeElement = this; }
     blur() { document.activeElement = null; }
+    setAttribute(name, value) { this.attributes[name] = value; }
   }
   const document = new Target();
   document.getElementById = id => elements.get(id) || null;
   const window = new Target();
   const canvas = new Target('CANVAS', 'remote-canvas');
   const input = new Target('INPUT', 'hidden-keyboard-input');
+  const modeButton = new Target('BUTTON', 'btn-input-mode');
   elements.set(canvas.id, canvas);
   elements.set(input.id, input);
+  elements.set(modeButton.id, modeButton);
   document.exitPointerLock = () => { document.pointerLockElement = null; };
   canvas.requestPointerLock = () => {
     document.pointerLockElement = canvas;
@@ -59,12 +63,103 @@ function client() {
       `\nglobalThis.${className} = ${className};`, context);
   }
   const capture = new context.InputCapture(canvas, { canvasToNormalized: () => ({ x: 0.5, y: 0.5 }) });
-  new context.VirtualKeyboard(capture);
+  const virtualKeyboard = new context.VirtualKeyboard(capture);
   capture.setWebSocket({ readyState: 1, send: data => messages.push(JSON.parse(data)) });
   capture.setEnabled(true);
-  return { capture, messages, document, window, canvas, input, Target,
+  if (mode === 'text') capture.setKeyboardMode('text');
+  return { capture, virtualKeyboard, modeButton, messages, document, window, canvas, input, Target,
     key(type, data, target = canvas) { return target.emit(type, data); } };
 }
+
+test('default mode holds simultaneous movement and jump keys without pointer lock', () => {
+  const c = client('keys');
+  assert.equal(c.capture.keyboardMode, 'keys');
+  assert.equal(c.document.pointerLockElement, undefined);
+  for (const [code, key] of [['KeyW', 'w'], ['KeyA', 'a'], ['Space', ' ']]) {
+    assert.equal(c.key('keydown', { code, key }).defaultPrevented, true);
+  }
+  assert.deepEqual(c.messages, [
+    { type: 'key_down', code: 'KeyW' }, { type: 'key_down', code: 'KeyA' },
+    { type: 'key_down', code: 'Space' },
+  ]);
+  assert.equal(c.capture._remoteKeys.size, 3);
+  for (const [code, key] of [['Space', ' '], ['KeyA', 'a'], ['KeyW', 'w']]) {
+    c.key('keyup', { code, key });
+  }
+  assert.deepEqual(c.messages.slice(3), [
+    { type: 'key_up', code: 'Space' }, { type: 'key_up', code: 'KeyA' },
+    { type: 'key_up', code: 'KeyW' },
+  ]);
+  assert.equal(c.capture._remoteKeys.size, 0);
+});
+
+test('default controls preserve physical keys, IME process keys, Alt and modifier holds', () => {
+  const c = client('keys');
+  c.key('keydown', { code: 'KeyW', key: 'Process', keyCode: 229, isComposing: true });
+  c.key('keydown', { code: 'KeyW', key: 'Process', repeat: true, keyCode: 229 });
+  c.key('keydown', { code: 'ShiftLeft', key: 'Shift', shiftKey: true });
+  c.key('keydown', { code: 'KeyD', key: 'D', shiftKey: true });
+  c.key('keydown', { code: 'AltLeft', key: 'Alt', altKey: true });
+  assert.deepEqual(c.messages, [
+    { type: 'key_down', code: 'KeyW' }, { type: 'key_down', code: 'KeyW' },
+    { type: 'key_down', code: 'ShiftLeft' }, { type: 'key_down', code: 'KeyD' },
+    { type: 'key_down', code: 'AltLeft' },
+  ]);
+  assert.equal(c.capture._getEffectiveButton({ button: 0, altKey: true }), 'left');
+  c.canvas.emit('mousedown', { clientX: 10, clientY: 10, button: 0 });
+  assert.equal(c.document.activeElement, c.canvas);
+  c.input.emit('compositionend', { data: 'w' });
+  c.input.emit('input', { data: 'w' });
+  assert.equal(c.messages.some(m => m.type === 'text_input'), false);
+});
+
+test('mode button releases movement keys then enables client-layout text and back', () => {
+  const c = client('keys');
+  c.key('keydown', { code: 'KeyW', key: 'w' });
+  c.modeButton.emit('click');
+  assert.equal(c.capture.keyboardMode, 'text');
+  assert.equal(c.document.activeElement, c.input);
+  assert.equal(c.modeButton.attributes['aria-pressed'], 'true');
+  c.key('keydown', { code: 'Digit2', key: '"' });
+  c.key('keyup', { code: 'KeyW', key: 'w' });
+  assert.deepEqual(c.messages, [
+    { type: 'key_down', code: 'KeyW' }, { type: 'key_up', code: 'KeyW' },
+    { type: 'text_input', text: '"' },
+  ]);
+  c.modeButton.emit('click');
+  assert.equal(c.capture.keyboardMode, 'keys');
+  assert.equal(c.document.activeElement, c.canvas);
+  assert.equal(c.modeButton.attributes['aria-pressed'], 'false');
+});
+
+test('pointer lock overrides text mode and restores it when unlocked', () => {
+  const c = client();
+  c.document.pointerLockElement = c.canvas;
+  c.document.emit('pointerlockchange');
+  assert.equal(c.modeButton.disabled, true);
+  c.key('keydown', { code: 'KeyW', key: 'z' });
+  c.document.pointerLockElement = null;
+  c.document.emit('pointerlockchange');
+  assert.equal(c.capture.keyboardMode, 'text');
+  assert.equal(c.modeButton.disabled, false);
+  assert.equal(c.document.activeElement, c.input);
+  c.input.emit('input', { data: 'z' });
+  assert.deepEqual(c.messages, [
+    { type: 'key_down', code: 'KeyW' }, { type: 'key_up', code: 'KeyW' },
+    { type: 'text_input', text: 'z' },
+  ]);
+});
+
+test('mobile keyboard opens in text mode and restores the previous mode on close', () => {
+  const c = client('keys');
+  c.virtualKeyboard.open();
+  c.virtualKeyboard.open();
+  assert.equal(c.capture.keyboardMode, 'text');
+  c.input.emit('input', { data: '日本語' });
+  c.virtualKeyboard.close();
+  assert.equal(c.capture.keyboardMode, 'keys');
+  assert.deepEqual(c.messages, [{ type: 'text_input', text: '日本語' }]);
+});
 
 test('characters use the client layout, including JIS/US symbols and AZERTY/QWERTZ letters', () => {
   for (const [code, key] of [

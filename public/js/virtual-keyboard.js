@@ -21,6 +21,9 @@ class VirtualKeyboard {
   }
 
   open() {
+    if (this.isOpen) return;
+    this.previousKeyboardMode = this.input.keyboardMode;
+    this.input.setKeyboardMode('text');
     this.isOpen = true;
     this.hiddenInput.style.position = 'fixed';
     this.hiddenInput.style.top = '50%';
@@ -34,18 +37,20 @@ class VirtualKeyboard {
   }
 
   close() {
+    if (!this.isOpen) return;
     this.isOpen = false;
     this.hiddenInput.blur();
     this.hiddenInput.style.pointerEvents = 'none';
     this.hiddenInput.style.top = '-100px';
     this.hiddenInput.style.left = '-100px';
     document.getElementById('btn-keyboard')?.classList.remove('active');
+    this.input.setKeyboardMode(this.previousKeyboardMode);
   }
 
   _bindEvents() {
     // Re-focus hidden input when canvas is tapped (if keyboard is open)
     document.getElementById('remote-canvas')?.addEventListener('touchend', () => {
-      if (this.isOpen) {
+      if (this.isOpen && !this.input.isKeyMode()) {
         setTimeout(() => {
           this.hiddenInput.focus();
         }, 100);

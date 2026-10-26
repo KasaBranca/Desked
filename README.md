@@ -204,14 +204,19 @@ history.
 
 ### PC (mouse & keyboard)
 - The mouse and keyboard work as-is
-- Text follows the **client PC's active keyboard layout**, including JIS/US
+- **Key controls are enabled by default**, including simultaneous keys, holds,
+  repeats and modifiers for games/apps. No pointer lock is needed for keyboard
+  controls. In the menu, click **入力：操作** to switch to **入力：文字** for typing;
+  click it again to return to key controls.
+- In **入力：文字**, text follows the **client PC's active keyboard layout**, including JIS/US
   punctuation, AZERTY/QWERTZ letters, AltGr/Option characters and local IME
   composition. Click the remote desktop to type; committed text is sent as
   Unicode, independently of the host's keyboard layout.
 - Ctrl/Meta shortcuts and navigation keys remain key operations. Ctrl+A, for
   example, uses the client's `A` key even when it occupies a different position.
-  **Game Mode (Ctrl+Shift+Z)** keeps physical key positions and key holds for
-  games; leave Game Mode to return to client-layout text input.
+  **Game Mode (Ctrl+Shift+Z)** additionally locks the mouse for relative movement
+  and forces key controls while locked. Esc releases the mouse and restores the
+  selected input mode. Opening the mobile keyboard temporarily selects text mode.
 - Right click and wheel scrolling are supported
 
 ### Smartphone (touch)
@@ -220,7 +225,7 @@ history.
 - **Keyboard button**: show the mobile keyboard
 
 ### Toolbar
-- **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Audio** / **Quality** / **Scale** / **Disconnect**
+- **入力：操作 / 入力：文字** / **Fullscreen** / **Keyboard** / **Ctrl** / **Alt** / **C+A+D** / **Audio** / **Quality** / **Scale** / **Disconnect**
 - **Audio** toggles system-audio playback (on by default). Because of browser
   autoplay rules, start it from the login tap if it stays silent.
 - Change the password from the server-side CLI (`npm run password`)

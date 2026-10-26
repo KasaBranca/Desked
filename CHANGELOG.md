@@ -5,10 +5,16 @@ All notable changes to Desked are documented here.
 ## [Unreleased]
 
 ### Fixed
+- Restored default keyboard controls for games/apps without requiring pointer
+  lock. Movement/jump/modifier keys now stay down until their matching key-up;
+  Alt is forwarded in key-control mode. The toolbar switches between key
+  controls (`入力：操作`) and client-layout text (`入力：文字`), releasing held keys
+  on each switch. Mobile keyboard input temporarily selects text mode.
 - Desktop text now follows the client's keyboard layout instead of interpreting
   physical key positions using the host layout. JIS/US symbols, AZERTY/QWERTZ,
   AltGr/Option and local IME/dead-key text use the existing Unicode input path.
-  Shortcuts/navigation remain key events and Game Mode retains physical keys.
+  In text mode, shortcuts/navigation remain key events; key-control mode and
+  Game Mode retain physical keys.
 - Hidden keyboard input no longer duplicates Enter/Backspace or IME commits.
   Held remote keys are released when focus is lost or input is disabled.
 
