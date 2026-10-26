@@ -2,6 +2,16 @@
 
 All notable changes to Desked are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Desktop text now follows the client's keyboard layout instead of interpreting
+  physical key positions using the host layout. JIS/US symbols, AZERTY/QWERTZ,
+  AltGr/Option and local IME/dead-key text use the existing Unicode input path.
+  Shortcuts/navigation remain key events and Game Mode retains physical keys.
+- Hidden keyboard input no longer duplicates Enter/Backspace or IME commits.
+  Held remote keys are released when focus is lost or input is disabled.
+
 ## [1.9.5]
 
 ### Fixed

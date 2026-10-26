@@ -204,6 +204,14 @@ history.
 
 ### PC (mouse & keyboard)
 - The mouse and keyboard work as-is
+- Text follows the **client PC's active keyboard layout**, including JIS/US
+  punctuation, AZERTY/QWERTZ letters, AltGr/Option characters and local IME
+  composition. Click the remote desktop to type; committed text is sent as
+  Unicode, independently of the host's keyboard layout.
+- Ctrl/Meta shortcuts and navigation keys remain key operations. Ctrl+A, for
+  example, uses the client's `A` key even when it occupies a different position.
+  **Game Mode (Ctrl+Shift+Z)** keeps physical key positions and key holds for
+  games; leave Game Mode to return to client-layout text input.
 - Right click and wheel scrolling are supported
 
 ### Smartphone (touch)

@@ -39,6 +39,8 @@ jobs:
           node --check lib/audio-stream.js
           node --check scripts/tunnel.js
           node --check public/js/app.js
+          node --check public/js/input-capture.js
+          node --check public/js/virtual-keyboard.js
           node --check public/js/audio-player.js
           node --check public/js/liquid-metal.js
           node --check public/js/halftone-flow.js

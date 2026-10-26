@@ -7,6 +7,13 @@ class InputCapture {
     this.renderer = renderer;
     this.ws = null;
     this.enabled = false;
+    this.textInput = document.getElementById('hidden-keyboard-input');
+    this._pressedKeys = new Map();
+    this._remoteKeys = new Set();
+    this._composing = false;
+    this._compositionCommit = null;
+    this._compositionTimer = 0;
+    this._pointerType = 'mouse';
 
     // Modifier key state
     this.modifiers = {
@@ -35,6 +42,7 @@ class InputCapture {
   }
 
   setWebSocket(ws) {
+    if (this.ws !== ws) this._releaseKeys();
     this.ws = ws;
   }
 
@@ -43,6 +51,10 @@ class InputCapture {
   }
 
   setEnabled(enabled) {
+    if (!enabled) {
+      this._releaseKeys();
+      this._resetComposition();
+    }
     this.enabled = enabled;
   }
 
@@ -77,6 +89,8 @@ class InputCapture {
   _sendNow(msg) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.enabled) {
       this.ws.send(JSON.stringify(msg));
+      if (msg.type === 'key_down') this._remoteKeys.add(msg.code);
+      if (msg.type === 'key_up') this._remoteKeys.delete(msg.code);
     }
   }
 
@@ -104,6 +118,8 @@ class InputCapture {
   _bindEvents() {
     const canvas = this.canvas;
 
+    canvas.addEventListener('pointerdown', (e) => { this._pointerType = e.pointerType; });
+
     // --- Mouse Events ---
     canvas.addEventListener('mousemove', (e) => {
       if (!this.enabled) return;
@@ -123,7 +139,15 @@ class InputCapture {
     canvas.addEventListener('mousedown', (e) => {
       if (!this.enabled) return;
       e.preventDefault();
-      canvas.focus();
+      if (this._pointerType === 'mouse' && document.pointerLockElement !== canvas && this.textInput) {
+        // A real editable target lets the client's IME/dead keys compose text.
+        // Keep its caret near the click so local IME candidates remain visible.
+        this.textInput.style.top = `${e.clientY}px`;
+        this.textInput.style.left = `${e.clientX}px`;
+        this.textInput.focus({ preventScroll: true });
+      } else {
+        canvas.focus();
+      }
       this._isDragging = true;
 
       const isLocked = document.pointerLockElement === canvas;
@@ -178,12 +202,16 @@ class InputCapture {
     });
 
     // --- Keyboard Events ---
-    // Listen on document to catch all keys even when canvas isn't focused
+    // Characters follow the client's layout; controls and game input stay keys.
     document.addEventListener('keydown', (e) => {
-      if (!this.enabled) return;
-      // Don't capture if typing in an input/textarea (except our hidden input)
-      if (e.target.tagName === 'INPUT' && e.target.id !== 'hidden-keyboard-input') return;
-      if (e.target.tagName === 'TEXTAREA') return;
+      if (!this.enabled || this._isLocalEditor(e.target)) return;
+      this._updateModifiers(e);
+
+      const gameMode = document.pointerLockElement === canvas;
+      if (!gameMode && (e.isComposing || this._composing || e.keyCode === 229 ||
+          ['Dead', 'Process', 'Unidentified'].includes(e.key))) {
+        return; // Let the client's native text input finish the composition.
+      }
 
       // Toggle Game Mode (Pointer Lock) with Ctrl+Shift+Z
       if (e.ctrlKey && e.shiftKey && e.code === 'KeyZ') {
@@ -197,19 +225,39 @@ class InputCapture {
         return;
       }
 
+      const physicalCode = e.code || this._keyToCode(e.key);
+      if (physicalCode === 'AltLeft' || physicalCode === 'AltRight') {
+        // Reserve physical Alt for local mouse-button remapping:
+        // Alt + left drag => remote right drag.
+        if (e.key !== 'AltGraph' && !e.getModifierState?.('AltGraph')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
+      const altGraph = e.getModifierState?.('AltGraph') || (e.ctrlKey && e.altKey);
+      const shortcut = (e.ctrlKey && !altGraph) || e.metaKey ||
+        this.stickyModifiers.ctrl || this.stickyModifiers.alt;
+      const printable = typeof e.key === 'string' && Array.from(e.key).length === 1 &&
+        !/[\u0000-\u001f\u007f]/.test(e.key);
+
+      if (!gameMode && printable && !shortcut) {
+        // Native input handles characters/IME when focused. Else use key, never
+        // code: e.g. JIS Shift+2 is '"', US Shift+2 is '@', AZERTY KeyQ is 'a'.
+        if (e.target !== this.textInput) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.sendText(e.key);
+        }
+        return;
+      }
+      // These locks belong to the client when typing text. Unicode already
+      // contains the client's case/NumLock result; don't toggle the host locks.
+      if (!gameMode && ['CapsLock', 'NumLock'].includes(e.key)) return;
+
       e.preventDefault();
       e.stopPropagation();
 
-      // Update modifier state
-      this._updateModifiers(e);
-
-      // Apply sticky modifiers
-      const code = e.code || this._keyToCode(e.key);
-      if (code === 'AltLeft' || code === 'AltRight') {
-        // Reserve physical Alt for local mouse-button remapping:
-        // Alt + left drag => remote right drag.
-        return;
-      }
       if (this.stickyModifiers.ctrl && !this.modifiers.ctrl) {
         this._send({ type: 'key_down', code: 'ControlLeft' });
       }
@@ -217,22 +265,27 @@ class InputCapture {
         this._send({ type: 'key_down', code: 'AltLeft' });
       }
 
+      let code = this._pressedKeys.get(physicalCode);
+      if (!code) {
+        const logicalCode = this._keyToCode(e.key);
+        code = !gameMode && shortcut && /^(Key[A-Z]|Digit[0-9])$/.test(logicalCode)
+          ? logicalCode : physicalCode;
+        this._pressedKeys.set(physicalCode, code);
+      }
       this._send({ type: 'key_down', code });
     });
 
     document.addEventListener('keyup', (e) => {
       if (!this.enabled) return;
-      if (e.target.tagName === 'INPUT' && e.target.id !== 'hidden-keyboard-input') return;
-      if (e.target.tagName === 'TEXTAREA') return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const code = e.code || this._keyToCode(e.key);
-      if (code === 'AltLeft' || code === 'AltRight') {
-        return;
+      const physicalCode = e.code || this._keyToCode(e.key);
+      const code = this._pressedKeys.get(physicalCode);
+      if (this._isLocalEditor(e.target) && !code) return;
+      if (code) {
+        e.preventDefault();
+        e.stopPropagation();
+        this._send({ type: 'key_up', code });
+        this._pressedKeys.delete(physicalCode);
       }
-      this._send({ type: 'key_up', code });
 
       // Release sticky modifiers
       if (this.stickyModifiers.ctrl && !e.ctrlKey) {
@@ -245,6 +298,86 @@ class InputCapture {
       this._updateModifiers(e);
       this._releaseStickyModifiers();
     });
+
+    window.addEventListener('blur', () => this._releaseKeys());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this._releaseKeys();
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this._releaseKeys();
+      if (document.pointerLockElement === canvas) canvas.focus();
+    });
+    this._bindTextInput();
+  }
+
+  _isLocalEditor(target) {
+    return target !== this.textInput &&
+      (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);
+  }
+
+  sendText(text) {
+    if (!this.enabled || typeof text !== 'string' || !text) return;
+    // AltGr can arrive as Ctrl+Alt, and Shift may already be held remotely.
+    // Unicode is complete text: briefly lift only modifiers sent by this client.
+    const held = [...this._remoteKeys].filter(code =>
+      /^(Shift|Control|Alt|Meta)(Left|Right)$/.test(code));
+    for (const code of held) this._send({ type: 'key_up', code });
+    this._send({ type: 'text_input', text });
+    for (const code of held) this._send({ type: 'key_down', code });
+  }
+
+  _resetComposition() {
+    clearTimeout(this._compositionTimer);
+    this._compositionCommit = null;
+    this._composing = false;
+    if (this.textInput) this.textInput.value = '';
+  }
+
+  _bindTextInput() {
+    const input = this.textInput;
+    if (!input) return;
+    input.addEventListener('compositionstart', () => {
+      this._resetComposition();
+      this._composing = true;
+    });
+    input.addEventListener('compositionend', (e) => {
+      this._composing = false;
+      this.sendText(e.data);
+      // Browsers differ on whether the final input comes before/after this
+      // event. Remember this commit through the trailing input to send once.
+      this._compositionCommit = e.data;
+      input.value = '';
+      this._compositionTimer = setTimeout(() => {
+        this._compositionCommit = null;
+      }, 0);
+    });
+    input.addEventListener('input', (e) => {
+      if (e.isComposing || this._composing) return;
+      const text = e.data || input.value;
+      if (text && text !== this._compositionCommit) this.sendText(text);
+      this._compositionCommit = null;
+      input.value = '';
+    });
+    input.addEventListener('beforeinput', (e) => {
+      if (!this.enabled || e.isComposing || this._composing) return;
+      const code = {
+        deleteContentBackward: 'Backspace', deleteContentForward: 'Delete',
+        insertLineBreak: 'Enter', insertParagraph: 'Enter',
+      }[e.inputType];
+      if (code) {
+        e.preventDefault();
+        this._send({ type: 'key_down', code });
+        this._send({ type: 'key_up', code });
+      }
+    });
+  }
+
+  _releaseKeys() {
+    for (const code of [...this._remoteKeys]) this._send({ type: 'key_up', code });
+    this._remoteKeys.clear();
+    this._pressedKeys.clear();
+    this._releaseStickyModifiers();
+    for (const mod of Object.keys(this.modifiers)) this.modifiers[mod] = false;
   }
 
   _getButton(button) {
