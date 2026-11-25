@@ -155,6 +155,17 @@
     }
   }
 
+  // Flow control: ack every H.264 frame so the server can measure end-to-end
+  // queueing through the tunnel, and ask for a keyframe when the decoder
+  // loses sync instead of waiting for the next periodic one.
+  function sendControl(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify(msg)); } catch (_) {}
+    }
+  }
+  videoRenderer.onFrameReceived = (seq) => sendControl({ type: 'ack', seq });
+  videoRenderer.onKeyframeNeeded = () => sendControl({ type: 'request_keyframe' });
+
   // --- WebSocket Connection ---
   function getWsUrl() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';

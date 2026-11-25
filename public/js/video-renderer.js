@@ -22,6 +22,11 @@ class VideoRenderer {
     this.fps = 0;
     this.lastFrameSize = 0;
     this.onFirstFrame = null;
+    /** Called with the server's frame sequence number on receipt (flow control). */
+    this.onFrameReceived = null;
+    /** Called (debounced) when the decoder needs a fresh keyframe. */
+    this.onKeyframeNeeded = null;
+    this._lastKeyframeRequest = 0;
     this._hasRenderedFrame = false;
 
     this.decoder = null;
@@ -48,6 +53,14 @@ class VideoRenderer {
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
+  }
+
+  _requestKeyframe() {
+    this._needsKeyframe = true;
+    const now = performance.now();
+    if (now - this._lastKeyframeRequest < 1000) return;
+    this._lastKeyframeRequest = now;
+    if (typeof this.onKeyframeNeeded === 'function') this.onKeyframeNeeded();
   }
 
   setScreenSize(width, height) {
@@ -142,7 +155,7 @@ class VideoRenderer {
       },
       error: (e) => {
         console.error('[VideoRenderer] Decoder error:', e);
-        this._needsKeyframe = true;
+        this._requestKeyframe();
       },
     });
 
@@ -165,7 +178,11 @@ class VideoRenderer {
       this._presentationQueue.shift().close();
     }
 
-    if (this._presentationQueue.length > 0 && now >= this._nextPresentationAt) {
+    // Draw the newest decoded frame on every display refresh. Gating on the
+    // stream interval snapped presentation to 60 Hz vsync multiples (24 fps
+    // became ~20 fps) and discarded frames that arrived slightly early, which
+    // showed up as constant judder over a jittery tunnel.
+    if (this._presentationQueue.length > 0) {
       const frame = this._presentationQueue.shift();
       try {
         const w = frame.displayWidth || frame.codedWidth;
@@ -188,8 +205,7 @@ class VideoRenderer {
         frame.close();
       }
 
-      // Present at the stream cadence; never accumulate catch-up bursts.
-      this._nextPresentationAt = now + this._presentationIntervalMs;
+      this._nextPresentationAt = now;
     }
 
     this._presentationRaf = requestAnimationFrame(() => this._presentFrame());
@@ -210,7 +226,7 @@ class VideoRenderer {
       if (chunk && typeof chunk.close === 'function') chunk.close();
     }
     this._pending = [];
-    this._needsKeyframe = true;
+    this._requestKeyframe();
   }
 
   _decodeChunk(chunk) {
@@ -223,7 +239,7 @@ class VideoRenderer {
       this.decoder.decode(chunk);
     } catch (e) {
       console.warn('[VideoRenderer] decode:', e.message || e);
-      this._needsKeyframe = true;
+      this._requestKeyframe();
     }
   }
 
@@ -252,6 +268,10 @@ class VideoRenderer {
     if (buffer.byteLength < 14 + len) return;
     const data = new Uint8Array(buffer, 14, len);
     this.lastFrameSize = buffer.byteLength;
+    // Newer servers append a u32 sequence number after the access unit.
+    if (buffer.byteLength >= 14 + len + 4 && typeof this.onFrameReceived === 'function') {
+      this.onFrameReceived(dv.getUint32(14 + len, true));
+    }
 
     const chunk = new EncodedVideoChunk({
       type: key ? 'key' : 'delta',
@@ -274,7 +294,7 @@ class VideoRenderer {
     // be dropped in place (its successors reference it), so we skip the rest of
     // the GOP and wait for an IDR.
     if (this.decoder && this.decoder.decodeQueueSize > this._maxDecodeQueue) {
-      this._needsKeyframe = true;
+      this._requestKeyframe();
     }
     this._decodeChunk(chunk);
   }

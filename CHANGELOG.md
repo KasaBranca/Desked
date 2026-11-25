@@ -4,6 +4,38 @@ All notable changes to Desked are documented here.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-25
+
+### Added
+- 60 fps streaming. Desktop Duplication capture now has an NVENC path; at
+  scale 1.0 the D3D11 desktop texture is encoded directly (no CPU copy).
+  GDI capture topped out at ~17-25 fps at 1080p.
+- End-to-end congestion control. Clients ack every H.264 frame; when frames
+  stay unacked longer than the base RTT + 150 ms the server stops sending
+  deltas, waits for the tunnel to drain and restarts the encoder for an
+  immediate keyframe. Previously congestion inside cloudflared was invisible
+  to `ws.bufferedAmount` and accumulated as seconds of latency.
+- Adaptive bitrate: `H264_MAXRATE_KBPS` is the ceiling; it drops 30% per
+  congestion event (min 1.5 Mbps) and rises 15% after 30 s without congestion.
+- The client requests a keyframe when its decoder loses sync instead of
+  waiting for the next periodic one.
+
+### Fixed
+- Video judder: the client gated presentation on the stream interval, which
+  snapped to vsync multiples (24 fps became ~20 fps) and dropped frames that
+  arrived slightly early. The newest decoded frame is now drawn every refresh.
+- NVENC was never selected: the encoder probe used a 64x64 frame, below
+  NVENC's minimum size, so Desked fell back to QSV (which could crash at
+  runtime) and then to CPU libx264. The probe now uses 256x144 and a runtime
+  failure switches to another hardware encoder before libx264.
+- Keyframe bursts stalling the tunnel once per GOP: the VBV buffer is now
+  ~1/4 s of the bitrate cap instead of a fixed 8 Mbit.
+- Desktop Duplication capture restarts automatically after UAC prompts, the
+  lock screen or display-mode changes end FFmpeg.
+- Quality/scale changes apply immediately in Desktop Duplication mode.
+- A late exit event from a replaced FFmpeg process no longer clears the new
+  encoder handle.
+
 ### Fixed
 - The top-right menu is now visible on desktop PCs as well as phones. The
   desktop pointer media query only hides the mobile text row, so input-mode

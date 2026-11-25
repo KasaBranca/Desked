@@ -93,9 +93,11 @@ prompts, so it is safe to run from a script.
 | `TARGET_FPS` | 10 | Target frame rate for JPEG mode |
 | `STREAM_MODE` | h264 | `h264` or `jpeg` |
 | `H264_ENCODER` | (empty = auto) | Empty auto-selects NVENC > QSV > AMF > libx264. Set e.g. `h264_nvenc` to force one |
-| `H264_TARGET_FPS` / `H264_CAPTURE_FPS` | 24 | Output / capture FPS |
-| `H264_GOP` | 24 | Keyframe interval |
+| `H264_TARGET_FPS` / `H264_CAPTURE_FPS` | 24 (`.env.example`: 60) | Output / capture FPS |
+| `H264_GOP` | 24 (`.env.example`: 120) | Keyframe interval in frames |
 | `H264_CQ` | 28 | Quality (lower is better) |
+| `H264_MAXRATE_KBPS` | 6000 (`.env.example`: 10000) | Bitrate ceiling. Lowered automatically on congestion, restored when stable |
+| `H264_DESKTOP_CAPTURE` | 1 | GPU Desktop Duplication capture (required for 60 fps). `0` = legacy GDI capture (~17-25 fps at 1080p) |
 | `AUDIO_ENABLED` | 1 | Stream the PC's system audio (set `0` to disable) |
 | `AUDIO_BITRATE` | 96 | Opus bitrate in kbps (16-320) |
 | `SESSION_TIMEOUT_HOURS` | 24 | Session lifetime (hours) |

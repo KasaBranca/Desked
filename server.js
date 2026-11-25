@@ -170,6 +170,7 @@ function sendH264Init(ws, avcC) {
 }
 
 let h264OutPtsUs = 0;
+let h264FrameSeq = 0;
 /** Split large WS binary (H.264 / JPEG); mobile paths often fail on single huge frames.
  *  Keep below Cloudflare Tunnel's safe WS frame size but large enough that typical
  *  JPEG/H.264 frames fit in ONE message (previously 4KB caused 10-50x chunk overhead). */
@@ -225,20 +226,105 @@ function logFirstFrame(ws, streamLabel) {
  * backpressure we therefore put the client into a "resync" state and resume
  * only at the next keyframe, trading a short freeze for a clean picture.
  */
-function sendH264Frame(ws, pkt, key) {
+/**
+ * End-to-end congestion check. ws.bufferedAmount only sees Node's own queue;
+ * the loopback hop to cloudflared drains instantly, so real congestion piles
+ * up inside the tunnel as latency. Clients ack every frame (by sequence
+ * number); frames unacked for longer than the base RTT plus a margin mean
+ * the path is queueing.
+ */
+const ACK_LATENCY_MARGIN_MS = 150;
+function ackThresholdMs(ws) {
+  // A keyframe is several times larger than a delta, so its own transfer
+  // time is not congestion; allow extra slack while one is in flight.
+  const keySlack = ws._inflight.some((e) => e.key) ? ACK_LATENCY_MARGIN_MS : 0;
+  return Math.min(ws._minRtt || 100, 400) + ACK_LATENCY_MARGIN_MS + keySlack;
+}
+function oldestUnackedAge(ws, now) {
+  if (!ws._acks || ws._inflight.length === 0) return 0;
+  return now - ws._inflight[0].t;
+}
+
+function sendH264Frame(ws, pkt, key, seq) {
   if (!ws || ws.readyState !== ws.OPEN) return;
+  const now = Date.now();
+  const age = oldestUnackedAge(ws, now);
+  const limit = ackThresholdMs(ws);
+  const congested = age > limit || ws.bufferedAmount > WS_SEND_HIGH_WATER;
   if (ws._resyncH264) {
-    if (!key) return;
-    if (ws.bufferedAmount > WS_SEND_HIGH_WATER) return;
-    ws._resyncH264 = false;
-  } else if (ws.bufferedAmount > WS_SEND_HIGH_WATER) {
+    // Wait for the queued video to drain, then ask for a fresh keyframe so
+    // the picture resumes immediately and without accumulated delay.
+    if (congested) return;
     if (!key) {
-      ws._resyncH264 = true;
+      requestKeyframe('resync');
       return;
     }
+    ws._resyncH264 = false;
+  } else if (congested && !key) {
+    ws._resyncH264 = true;
+    ws._resyncCount = (ws._resyncCount || 0) + 1;
+    onCongestion();
+    if (!ws._resyncLoggedAt || now - ws._resyncLoggedAt > 10000) {
+      ws._resyncLoggedAt = now;
+      console.log(
+        `[Server] Congestion: unacked ${Math.round(age)}ms (limit ${Math.round(limit)}ms), buffered ${Math.round(ws.bufferedAmount / 1024)} KB, bitrate now ${currentMaxrateKbps} kbps (resyncs: ${ws._resyncCount})`
+      );
+    }
+    return;
   }
   sendBinaryChunks(ws, pkt);
+  if (ws._acks || ws._inflight.length < 600) {
+    ws._inflight.push({ seq, t: now, key: !!key });
+    if (ws._inflight.length > 600) ws._inflight.shift();
+  }
   logFirstFrame(ws, 'H.264');
+}
+
+function handleAck(ws, seq) {
+  ws._acks = true;
+  const now = Date.now();
+  while (ws._inflight.length && ws._inflight[0].seq <= seq) {
+    const e = ws._inflight.shift();
+    if (e.seq === seq) {
+      const rtt = now - e.t;
+      if (!ws._minRtt || rtt < ws._minRtt) ws._minRtt = rtt;
+      else ws._minRtt += (rtt - ws._minRtt) * 0.002; // slow drift if the path changes
+    }
+  }
+}
+
+// --- Adaptive bitrate: back off on congestion, creep back up when stable ---
+let currentMaxrateKbps = config.h264MaxrateKbps;
+let lastCongestionAt = 0;
+function onCongestion() {
+  const now = Date.now();
+  if (now - lastCongestionAt < 1000) return;
+  lastCongestionAt = now;
+  const next = Math.max(1500, Math.round(currentMaxrateKbps * 0.7));
+  if (next !== currentMaxrateKbps) {
+    currentMaxrateKbps = next;
+    if (hwEncoder) hwEncoder.maxrateKbps = next; // applied by the keyframe restart
+  }
+}
+setInterval(() => {
+  if (!captureRunning || !hwEncoder) return;
+  if (currentMaxrateKbps >= config.h264MaxrateKbps) return;
+  if (Date.now() - lastCongestionAt < 30000) return;
+  currentMaxrateKbps = Math.min(config.h264MaxrateKbps, Math.round(currentMaxrateKbps * 1.15));
+  hwEncoder.maxrateKbps = currentMaxrateKbps;
+  console.log(`[Server] Network stable; raising bitrate to ${currentMaxrateKbps} kbps`);
+  requestKeyframe('bitrate');
+}, 15000).unref();
+
+/** Restarting FFmpeg is the only way to force an IDR through the pipe. */
+let lastKeyframeRequestAt = 0;
+function requestKeyframe(reason) {
+  if (!captureRunning || !hwEncoder) return;
+  const now = Date.now();
+  if (now - lastKeyframeRequestAt < 1000) return;
+  lastKeyframeRequestAt = now;
+  forceEncoderRestart = true;
+  ensureEncoder();
 }
 
 /** JPEG frames are independent, so dropping whole frames under backpressure is safe. */
@@ -252,15 +338,17 @@ function sendJpegFrame(ws, pkt) {
 function broadcastH264Frame(frame) {
   const stepUs = Math.round(1_000_000 / streamFps());
   h264OutPtsUs += stepUs;
-  const pkt = Buffer.alloc(14 + frame.data.length);
+  const seq = (h264FrameSeq = (h264FrameSeq + 1) >>> 0);
+  const pkt = Buffer.alloc(14 + frame.data.length + 4);
   pkt[0] = 0x02;
   pkt.writeDoubleLE(h264OutPtsUs, 1);
   pkt[9] = frame.key ? 1 : 0;
   pkt.writeUInt32LE(frame.data.length, 10);
   frame.data.copy(pkt, 14);
+  pkt.writeUInt32LE(seq, 14 + frame.data.length);
 
   for (const client of clients) {
-    sendH264Frame(client, pkt, frame.key);
+    sendH264Frame(client, pkt, frame.key, seq);
   }
 }
 
@@ -394,7 +482,7 @@ function canRunEncoder(name) {
         '-f',
         'lavfi',
         '-i',
-        'color=c=black:s=64x64:r=1',
+        'color=c=black:s=256x144:r=1', // NVENC rejects frames below ~145x49
         '-frames:v',
         '1',
         '-an',
@@ -404,7 +492,7 @@ function canRunEncoder(name) {
         'null',
         '-',
       ],
-      { stdio: 'ignore' }
+      { stdio: 'ignore', timeout: 15000, windowsHide: true }
     );
     return true;
   } catch {
@@ -412,9 +500,11 @@ function canRunEncoder(name) {
   }
 }
 
-function chooseWorkingH264Encoder() {
+const failedEncoders = new Set();
+
+function chooseWorkingH264Encoder(exclude = new Set()) {
   const forced = pickForcedEncoder();
-  if (forced) {
+  if (forced && !exclude.has(forced)) {
     if (canRunEncoder(forced)) return forced;
     console.warn(`[Server] Requested H.264 encoder ${forced} is not usable; trying fallbacks.`);
   }
@@ -425,6 +515,7 @@ function chooseWorkingH264Encoder() {
     if (!candidates.includes(e)) candidates.push(e);
   }
   for (const enc of candidates) {
+    if (exclude.has(enc)) continue;
     if (canRunEncoder(enc)) return enc;
   }
   return null;
@@ -465,6 +556,7 @@ function tryInitH264() {
     fps: config.h264CaptureFps,
     gop: config.h264Gop,
     cq: config.h264Cq,
+    maxrateKbps: config.h264MaxrateKbps,
     encoder: encName,
     desktopCapture: config.h264DesktopCapture,
   });
@@ -476,7 +568,20 @@ function tryInitH264() {
     }
   };
   hwEncoder.onFrame = (frame) => {
+    desktopRestartFailures = 0;
     broadcastH264Frame(frame);
+  };
+  // Desktop Duplication loses access on UAC prompts, the lock screen and
+  // display-mode changes, which ends FFmpeg. Restart it while clients remain.
+  hwEncoder.onExit = (code) => {
+    if (!captureRunning || !hwEncoder?.desktopCapture) return;
+    desktopRestartFailures++;
+    const delay = Math.min(5000, 300 * desktopRestartFailures);
+    console.warn(`[Server] Desktop capture encoder exited (${code}); restarting in ${delay}ms`);
+    clearTimeout(desktopRestartTimer);
+    desktopRestartTimer = setTimeout(() => {
+      if (captureRunning) ensureEncoder();
+    }, delay);
   };
   screenCapture.setStreamMode('h264');
   try {
@@ -490,17 +595,29 @@ function tryInitH264() {
     encInH = si.physicalHeight;
     encOutW = si.width;
     encOutH = si.height;
+    encCq = hwEncoder.cq;
+    encMaxrate = hwEncoder.maxrateKbps;
     console.log('[Server] H.264 encoder prewarmed');
   } catch (e) {
     console.warn('[Server] H.264 prewarm skipped:', e.message);
   }
 }
 
+let desktopRestartFailures = 0;
+let desktopRestartTimer = null;
+let encCq = 0;
+let encMaxrate = 0;
+let forceEncoderRestart = false;
+
 function ensureEncoder() {
   if (!useH264 || !hwEncoder) return;
   if (hwEncoder.isPipeBroken() && hwEncoder.encoder !== 'libx264') {
-    console.warn(`[Server] ${hwEncoder.encoder} failed at runtime, falling back to libx264.`);
-    hwEncoder.encoder = 'libx264';
+    // Prefer another hardware encoder (e.g. NVENC after a QSV crash) over the
+    // CPU-heavy libx264 fallback.
+    failedEncoders.add(hwEncoder.encoder);
+    const next = chooseWorkingH264Encoder(failedEncoders) || 'libx264';
+    console.warn(`[Server] ${hwEncoder.encoder} failed at runtime, switching to ${next}.`);
+    hwEncoder.encoder = next;
     encInW = 0;
     encInH = 0;
     encOutW = 0;
@@ -514,7 +631,10 @@ function ensureEncoder() {
     encInW === encInputW &&
     encInH === encInputH &&
     encOutW === si.width &&
-    encOutH === si.height
+    encOutH === si.height &&
+    encCq === hwEncoder.cq &&
+    encMaxrate === hwEncoder.maxrateKbps &&
+    !forceEncoderRestart
   ) {
     return;
   }
@@ -526,6 +646,9 @@ function ensureEncoder() {
     encInH = encInputH;
     encOutW = si.width;
     encOutH = si.height;
+    encCq = hwEncoder.cq;
+    encMaxrate = hwEncoder.maxrateKbps;
+    forceEncoderRestart = false;
     cachedAvcC = null;
     h264OutPtsUs = 0;
   } catch (e) {
@@ -634,6 +757,8 @@ function startCapture() {
 
 function stopCapture() {
   captureRunning = false;
+  clearTimeout(desktopRestartTimer);
+  desktopRestartFailures = 0;
   captureTickAnchor = 0;
   clearH264BroadcastQueue();
   if (hwEncoder?.desktopCapture) {
@@ -655,6 +780,9 @@ wss.on('connection', (ws, req) => {
   ws._sentFirstFrame = false;
   ws._resyncH264 = false;
   ws._audio = true;
+  ws._inflight = [];
+  ws._acks = false;
+  ws._minRtt = 0;
 
   let authenticated = false;
   let sessionToken = null;
@@ -719,6 +847,18 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
+    if (msg.type === 'ack') {
+      if (Number.isInteger(msg.seq)) handleAck(ws, msg.seq >>> 0);
+      return;
+    }
+
+    if (msg.type === 'request_keyframe') {
+      // Client decoder lost sync: resume at a fresh keyframe.
+      ws._resyncH264 = true;
+      requestKeyframe('client');
+      return;
+    }
+
     // Enable/disable audio for this client
     if (msg.type === 'set_audio') {
       ws._audio = msg.enabled !== false;
@@ -745,6 +885,7 @@ wss.on('connection', (ws, req) => {
         }));
         screenCapture.forceFullFrame();
       }
+      if (captureRunning && hwEncoder?.desktopCapture) ensureEncoder();
       return;
     }
 
